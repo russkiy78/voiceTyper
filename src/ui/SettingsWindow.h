@@ -42,6 +42,7 @@ private:
     QKeySequenceEdit* hotkey_ = nullptr;
     QLineEdit* modelPath_ = nullptr;
     QComboBox* computeBackend_ = nullptr;
+
     QCheckBox* overlayEnabled_ = nullptr;
     QSpinBox* clipboardDelay_ = nullptr;
     QCheckBox* cdEnabled_ = nullptr;

@@ -22,6 +22,7 @@
 #endif
 
 #include <QCoreApplication>
+#include <QtGlobal>
 
 namespace vt {
 
@@ -98,7 +99,8 @@ void AppController::buildAsrEngine() {
         const ResolvedBackend rb =
             resolveBackend(lastComputeBackend_.toStdString());
         asr_ = std::make_unique<WhisperAsrEngine>(
-            lastModelPath_.toStdString(), rb.useGpu, rb.gpuDevice, rb.label);
+            lastModelPath_.toStdString(), rb.useGpu, rb.gpuDevice, false,
+            rb.label);
         if (!asr_->isReady())
             qCWarning(vtAsr) << "Model failed to load:" << lastModelPath_;
     } else {

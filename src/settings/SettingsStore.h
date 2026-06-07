@@ -33,6 +33,8 @@ public:
     QString computeBackend() const;
     void setComputeBackend(const QString& id);
 
+
+
     // --- Hotkey ----------------------------------------------------------
     QString hotkey() const;              // e.g. "Ctrl+Alt+Space"
     void setHotkey(const QString& seq);

@@ -15,7 +15,7 @@ option(VOICETYPER_WITH_WHISPER "Build with bundled whisper.cpp local ASR" ON)
 
 set(WHISPER_CPP_SOURCE_DIR "" CACHE PATH
     "Path to a local whisper.cpp checkout (overrides FetchContent)")
-set(WHISPER_CPP_GIT_TAG "v1.7.6" CACHE STRING
+set(WHISPER_CPP_GIT_TAG "v1.8.6" CACHE STRING
     "whisper.cpp git tag to fetch when no local source is provided")
 
 function(voicetyper_add_whisper)

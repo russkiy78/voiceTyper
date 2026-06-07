@@ -102,7 +102,8 @@ void dumpWavDebug(const std::vector<float>& samples, int sampleRate) {
 } // namespace
 
 WhisperAsrEngine::WhisperAsrEngine(const std::string& modelPath, bool useGpu,
-                                   int gpuDevice, std::string backendLabel)
+                                   int gpuDevice, bool flashAttn,
+                                   std::string backendLabel)
     : modelPath_(modelPath), backendLabel_(std::move(backendLabel)) {
     if (modelPath.empty()) {
         qCWarning(vtAsr) << "WhisperAsrEngine: empty model path";
@@ -115,11 +116,16 @@ WhisperAsrEngine::WhisperAsrEngine(const std::string& modelPath, bool useGpu,
     // CPU on its own, so this is always safe.
     cparams.use_gpu = useGpu;
     cparams.gpu_device = gpuDevice;
+    // Flash attention. We pin it explicitly (rather than inheriting the upstream
+    // default, which became ON in v1.8.0) so a version bump never changes decode
+    // behaviour silently and the two modes can be benchmarked head-to-head.
+    cparams.flash_attn = flashAttn;
     qCInfo(vtAsr) << "Whisper compute backend:"
                   << QString::fromStdString(
                          backendLabel_.empty()
                              ? (useGpu ? std::string("GPU") : std::string("CPU"))
-                             : backendLabel_);
+                             : backendLabel_)
+                  << "flash_attn:" << flashAttn;
     ctx_ = whisper_init_from_file_with_params(modelPath.c_str(), cparams);
     if (!ctx_)
         qCWarning(vtAsr) << "Failed to load whisper model:"

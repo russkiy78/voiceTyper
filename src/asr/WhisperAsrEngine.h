@@ -14,10 +14,14 @@ namespace vt {
 // pass and the command-detection loop can share a single context safely.
 class WhisperAsrEngine final : public IAsrEngine {
 public:
-    // useGpu/gpuDevice map directly to whisper_context_params; backendLabel is a
-    // human-readable description of the selected compute backend for logging.
+    // useGpu/gpuDevice/flashAttn map directly to whisper_context_params;
+    // backendLabel is a human-readable description of the selected compute
+    // backend for logging. flashAttn defaults off to preserve pre-1.8 behaviour
+    // (upstream flipped its default to on in v1.8.0); enabling it mainly speeds
+    // up the GPU encoder but its support/numerics vary by backend, so it is kept
+    // an explicit, separately-toggleable knob for A/B benchmarking.
     WhisperAsrEngine(const std::string& modelPath, bool useGpu, int gpuDevice,
-                     std::string backendLabel = {});
+                     bool flashAttn = false, std::string backendLabel = {});
     ~WhisperAsrEngine() override;
 
     WhisperAsrEngine(const WhisperAsrEngine&) = delete;

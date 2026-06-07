@@ -72,6 +72,7 @@ private:
     std::thread worker_;
     QString lastModelPath_;
     QString lastComputeBackend_;
+
     bool processing_ = false;
 };
 

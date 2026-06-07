@@ -88,6 +88,8 @@ void SettingsWindow::buildUi() {
     }
     form->addRow(tr("Compute backend:"), computeBackend_);
 
+
+
     overlayEnabled_ = new QCheckBox(tr("Show recording overlay"), this);
     form->addRow(QString(), overlayEnabled_);
 
@@ -173,6 +175,7 @@ void SettingsWindow::loadFromSettings() {
     }
     computeBackend_->setCurrentIndex(bidx);
 
+
     overlayEnabled_->setChecked(settings_->overlayEnabled());
     clipboardDelay_->setValue(settings_->clipboardRestoreDelayMs());
 
@@ -217,6 +220,7 @@ void SettingsWindow::apply() {
         hotkey_->keySequence().toString(QKeySequence::PortableText));
     settings_->setModelPath(modelPath_->text());
     settings_->setComputeBackend(computeBackend_->currentData().toString());
+
     settings_->setOverlayEnabled(overlayEnabled_->isChecked());
     settings_->setClipboardRestoreDelayMs(clipboardDelay_->value());
     settings_->setCommandDetectionEnabled(cdEnabled_->isChecked());

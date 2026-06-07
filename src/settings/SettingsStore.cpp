@@ -19,6 +19,7 @@ constexpr auto kTranslate = "asr/translate";
 constexpr auto kThreads = "asr/threads";
 constexpr auto kModelPath = "asr/modelPath";
 constexpr auto kComputeBackend = "asr/computeBackend";
+
 constexpr auto kHotkey = "hotkey/sequence";
 constexpr auto kOverlay = "overlay/enabled";
 constexpr auto kClipboardDelay = "clipboard/restoreDelayMs";
@@ -76,6 +77,8 @@ void SettingsStore::setComputeBackend(const QString& id) {
     QSettings().setValue(keys::kComputeBackend, id);
     emit changed();
 }
+
+
 
 QString SettingsStore::hotkey() const {
     return QSettings().value(keys::kHotkey, "Ctrl+Alt+Space").toString();
