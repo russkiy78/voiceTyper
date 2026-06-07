@@ -1,22 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+
 PROJECT_NAME="voiceTyper"
 VERSION="0.1.0"
 ARCH="amd64"
 PACKAGE_NAME="${PROJECT_NAME}_${VERSION}_${ARCH}"
-BUILD_DIR="build"
-DEB_DIR="deb_package"
+BUILD_DIR="${ROOT_DIR}/build"
+DEB_DIR="${ROOT_DIR}/deb_package"
 MODELS_DIR="models"
 DEFAULT_MODEL="ggml-large-v3-q5_0.bin"
 
+cd "$ROOT_DIR"
+
 # Clean previous build artifacts
-rm -rf "${DEB_DIR}" "${PACKAGE_NAME}.deb"
+rm -rf "${DEB_DIR}" "${ROOT_DIR}/${PACKAGE_NAME}.deb"
 
 # Generate icons if they don't exist
-if [ ! -f "voicetyper_icon.png" ]; then
+if [ ! -f "${ROOT_DIR}/voicetyper_icon.png" ]; then
     echo "Generating application icons..."
-    python3 generate_icon.py
+    python3 "${SCRIPT_DIR}/../generate_icon.py"
 fi
 
 # Build project if build directory doesn't exist or is empty
@@ -48,12 +53,12 @@ cp config/commands.default.json "${DEB_DIR}/usr/share/${PROJECT_NAME}/"
 mkdir -p "${DEB_DIR}/usr/share/${PROJECT_NAME}/models"
 
 # Copy icons
-cp voicetyper_16x16.png "${DEB_DIR}/usr/share/icons/hicolor/16x16/apps/voicetyper.png"
-cp voicetyper_32x32.png "${DEB_DIR}/usr/share/icons/hicolor/32x32/apps/voicetyper.png"
-cp voicetyper_48x48.png "${DEB_DIR}/usr/share/icons/hicolor/48x48/apps/voicetyper.png"
-cp voicetyper_64x64.png "${DEB_DIR}/usr/share/icons/hicolor/64x64/apps/voicetyper.png"
-cp voicetyper_128x128.png "${DEB_DIR}/usr/share/icons/hicolor/128x128/apps/voicetyper.png"
-cp voicetyper_256x256.png "${DEB_DIR}/usr/share/icons/hicolor/256x256/apps/voicetyper.png"
+cp "${ROOT_DIR}/voicetyper_16x16.png" "${DEB_DIR}/usr/share/icons/hicolor/16x16/apps/voicetyper.png"
+cp "${ROOT_DIR}/voicetyper_32x32.png" "${DEB_DIR}/usr/share/icons/hicolor/32x32/apps/voicetyper.png"
+cp "${ROOT_DIR}/voicetyper_48x48.png" "${DEB_DIR}/usr/share/icons/hicolor/48x48/apps/voicetyper.png"
+cp "${ROOT_DIR}/voicetyper_64x64.png" "${DEB_DIR}/usr/share/icons/hicolor/64x64/apps/voicetyper.png"
+cp "${ROOT_DIR}/voicetyper_128x128.png" "${DEB_DIR}/usr/share/icons/hicolor/128x128/apps/voicetyper.png"
+cp "${ROOT_DIR}/voicetyper_256x256.png" "${DEB_DIR}/usr/share/icons/hicolor/256x256/apps/voicetyper.png"
 
 # Create desktop entry
 cat > "${DEB_DIR}/usr/share/applications/voicetyper.desktop" <<'DESKTOP_EOF'
@@ -153,13 +158,13 @@ POSTRM_EOF
 chmod 755 "${DEB_DIR}/DEBIAN/postrm"
 
 # Build the DEB package
-echo "Building DEB package: ${PACKAGE_NAME}.deb"
-dpkg-deb --build "${DEB_DIR}" "${PACKAGE_NAME}.deb"
+echo "Building DEB package: ${ROOT_DIR}/${PACKAGE_NAME}.deb"
+dpkg-deb --build "${DEB_DIR}" "${ROOT_DIR}/${PACKAGE_NAME}.deb"
 
 # Clean up temporary directory
 rm -rf "${DEB_DIR}"
 
-echo "DEB package created: ${PACKAGE_NAME}.deb"
+echo "DEB package created: ${ROOT_DIR}/${PACKAGE_NAME}.deb"
 echo ""
 echo "To install:"
 echo "  sudo dpkg -i ${PACKAGE_NAME}.deb"
