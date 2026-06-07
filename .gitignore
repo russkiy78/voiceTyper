@@ -1,0 +1,22 @@
+# Build output
+/build/
+/build-*/
+/cmake-build-*/
+/out/
+
+# Whisper models (downloaded separately, large)
+/models/*.bin
+/models/*.gguf
+
+# Local whisper.cpp checkout (optional override)
+/third_party/whisper.cpp/
+
+# IDE / editor
+.vscode/
+.idea/
+*.user
+*.autosave
+
+# OS junk
+.DS_Store
+Thumbs.db

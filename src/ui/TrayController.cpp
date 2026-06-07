@@ -1,0 +1,86 @@
+#include "ui/TrayController.h"
+
+#include <QAction>
+#include <QMenu>
+#include <QPainter>
+#include <QPixmap>
+
+namespace vt {
+
+TrayController::TrayController(QObject* parent) : QObject(parent) {
+    menu_ = new QMenu();
+
+    toggleAction_ = menu_->addAction(tr("Start dictation"));
+    connect(toggleAction_, &QAction::triggered, this,
+            &TrayController::toggleRecordingRequested);
+
+    menu_->addSeparator();
+
+    QAction* settings = menu_->addAction(tr("Settings..."));
+    connect(settings, &QAction::triggered, this,
+            &TrayController::openSettingsRequested);
+
+    menu_->addSeparator();
+
+    QAction* quit = menu_->addAction(tr("Quit"));
+    connect(quit, &QAction::triggered, this, &TrayController::quitRequested);
+
+    tray_.setContextMenu(menu_);
+    tray_.setIcon(makeIcon(false));
+    tray_.setToolTip(tr("voiceTyper — idle"));
+
+    connect(&tray_, &QSystemTrayIcon::activated, this,
+            [this](QSystemTrayIcon::ActivationReason reason) {
+                if (reason == QSystemTrayIcon::Trigger ||
+                    reason == QSystemTrayIcon::DoubleClick)
+                    emit toggleRecordingRequested();
+            });
+}
+
+TrayController::~TrayController() { delete menu_; }
+
+void TrayController::show() { tray_.show(); }
+
+void TrayController::setRecording(bool recording) {
+    recording_ = recording;
+    tray_.setIcon(makeIcon(recording));
+    tray_.setToolTip(recording ? tr("voiceTyper — recording") : tr("voiceTyper — idle"));
+    if (toggleAction_)
+        toggleAction_->setText(recording ? tr("Stop dictation")
+                                         : tr("Start dictation"));
+}
+
+void TrayController::showMessage(const QString& title, const QString& body) {
+    tray_.showMessage(title, body, QSystemTrayIcon::Information, 3000);
+}
+
+QIcon TrayController::makeIcon(bool recording) const {
+    // Draw a simple microphone glyph so the app needs no external icon asset.
+    QPixmap pm(64, 64);
+    pm.fill(Qt::transparent);
+
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing, true);
+
+    const QColor body = recording ? QColor(231, 76, 60) : QColor(70, 130, 220);
+    p.setPen(Qt::NoPen);
+    p.setBrush(body);
+
+    // Mic capsule.
+    p.drawRoundedRect(QRectF(24, 10, 16, 28), 8, 8);
+    // Mic stand arc.
+    QPen pen(body);
+    pen.setWidth(4);
+    pen.setCapStyle(Qt::RoundCap);
+    p.setPen(pen);
+    p.setBrush(Qt::NoBrush);
+    p.drawArc(QRectF(18, 16, 28, 30), 200 * 16, 140 * 16);
+    // Stem + base.
+    p.drawLine(QPointF(32, 46), QPointF(32, 54));
+    p.drawLine(QPointF(24, 54), QPointF(40, 54));
+
+    p.end();
+    return QIcon(pm);
+}
+
+} // namespace vt

@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "commands": [
+    {
+      "id": "newline",
+      "enabled": true,
+      "action": "insert_text",
+      "value": "\n",
+      "patterns": [
+        "новая строка",
+        "перенос строки",
+        "следующая строка"
+      ],
+      "match_mode": "normalized_phrase",
+      "remove_command_from_output": true
+    },
+    {
+      "id": "stop_recording",
+      "enabled": true,
+      "action": "stop_recording",
+      "patterns": [
+        "стоп",
+        "остановить запись",
+        "конец диктовки"
+      ],
+      "match_mode": "normalized_phrase",
+      "remove_command_from_output": true
+    },
+    {
+      "id": "tab",
+      "enabled": true,
+      "action": "insert_text",
+      "value": "\t",
+      "patterns": [
+        "табуляция",
+        "таб"
+      ],
+      "match_mode": "normalized_phrase",
+      "remove_command_from_output": true
+    },
+    {
+      "id": "comma",
+      "enabled": true,
+      "action": "insert_text",
+      "value": ",",
+      "patterns": [
+        "запятая"
+      ],
+      "match_mode": "normalized_phrase",
+      "remove_command_from_output": true
+    },
+    {
+      "id": "period",
+      "enabled": true,
+      "action": "insert_text",
+      "value": ".",
+      "patterns": [
+        "точка"
+      ],
+      "match_mode": "normalized_phrase",
+      "remove_command_from_output": true
+    }
+  ]
+}
