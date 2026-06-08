@@ -71,10 +71,27 @@ void SettingsWindow::buildUi() {
     auto* browse = new QPushButton(tr("Browse..."), this);
     connect(browse, &QPushButton::clicked, this, &SettingsWindow::browseModel);
     auto* modelRow = new QHBoxLayout();
+    modelRow->setContentsMargins(0, 0, 0, 0);
     modelRow->addWidget(modelPath_, 1);
     modelRow->addWidget(browse);
+
+    // Subtle link that opens a small dialog with direct model download links.
+    auto* modelLink =
+        new QLabel(tr("<a href=\"#\">Download models</a>"), this);
+    modelLink->setTextInteractionFlags(Qt::TextBrowserInteraction);
+    modelLink->setStyleSheet(QStringLiteral("font-size: 11px;"));
+    connect(modelLink, &QLabel::linkActivated, this,
+            &SettingsWindow::openModelDownloadsDialog);
+
+    // Stack the path row and the link in one form cell so the link sits right
+    // beneath the field (~2px) instead of a full form-row gap away.
+    auto* modelCol = new QVBoxLayout();
+    modelCol->setContentsMargins(0, 0, 0, 0);
+    modelCol->setSpacing(2);
+    modelCol->addLayout(modelRow);
+    modelCol->addWidget(modelLink);
     auto* modelRowWidget = new QWidget(this);
-    modelRowWidget->setLayout(modelRow);
+    modelRowWidget->setLayout(modelCol);
     form->addRow(tr("Whisper model:"), modelRowWidget);
 
     // Compute backend: CPU is always present; Vulkan/CUDA entries appear only
@@ -149,6 +166,52 @@ void SettingsWindow::buildUi() {
     connect(buttons, &QDialogButtonBox::accepted, this, &SettingsWindow::apply);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::close);
     root->addWidget(buttons);
+}
+
+void SettingsWindow::openModelDownloadsDialog() {
+    QDialog dlg(this);
+    dlg.setWindowTitle(tr("Download a Whisper model"));
+    dlg.setMinimumWidth(380);
+
+    auto* lay = new QVBoxLayout(&dlg);
+
+    auto* intro = new QLabel(
+        tr("Direct downloads from huggingface.co. Save the .bin file, then "
+           "point \"Whisper model\" at it via Browse."),
+        &dlg);
+    intro->setWordWrap(true);
+    lay->addWidget(intro);
+
+    // Recommended models — kept in sync with scripts/download-model.ps1.
+    struct ModelDl {
+        const char* name;
+        const char* file;
+        const char* size;
+    };
+    static const ModelDl kModels[] = {
+        {"Small", "ggml-small-q5_1.bin", "~180 MB"},
+        {"Medium", "ggml-medium-q5_0.bin", "~540 MB"},
+        {"Large", "ggml-large-v3-q5_0.bin", "~1.1 GB"},
+    };
+    const QString base = QStringLiteral(
+        "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/");
+
+    for (const ModelDl& m : kModels) {
+        auto* row = new QLabel(
+            QStringLiteral("<a href=\"%1%2\">%3</a> &mdash; %4")
+                .arg(base, QString::fromLatin1(m.file),
+                     QString::fromLatin1(m.name), QString::fromLatin1(m.size)),
+            &dlg);
+        row->setOpenExternalLinks(true);
+        row->setTextInteractionFlags(Qt::TextBrowserInteraction);
+        lay->addWidget(row);
+    }
+
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dlg);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    lay->addWidget(buttons);
+
+    dlg.exec();
 }
 
 void SettingsWindow::loadFromSettings() {

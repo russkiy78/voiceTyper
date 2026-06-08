@@ -34,6 +34,8 @@ private slots:
 private:
     void buildUi();
     void loadFromSettings();
+    // Small modal offering direct download links for the recommended models.
+    void openModelDownloadsDialog();
 
     SettingsStore* settings_ = nullptr;
 

@@ -1,0 +1,7 @@
+// Windows application icon, embedded into voiceTyper.exe.
+//
+// The referenced voicetyper.ico is generated from the voicetyper_*x*.png
+// sources by scripts/build-windows.ps1 (New-AppIcon) before CMake configure.
+// IDI_ICON1 (the lowest-numbered icon resource) is what Explorer and the
+// taskbar use as the executable's icon.
+IDI_ICON1 ICON "voicetyper.ico"

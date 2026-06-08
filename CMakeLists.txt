@@ -111,6 +111,15 @@ else()
         src/clipboard/KeyboardPaster_x11.cpp)
 endif()
 
+# Embed the application icon into the .exe via a Windows resource script. The
+# .ico is generated from the voicetyper_*x*.png sources by
+# scripts/build-windows.ps1 (New-AppIcon) before configure; guard on its
+# presence so a checkout without the generated icon still builds.
+if(WIN32 AND EXISTS "${CMAKE_SOURCE_DIR}/resources/voicetyper.ico")
+    enable_language(RC)
+    list(APPEND VOICETYPER_SOURCES resources/voicetyper.rc)
+endif()
+
 qt_add_executable(voiceTyper WIN32 ${VOICETYPER_SOURCES})
 
 target_include_directories(voiceTyper PRIVATE ${CMAKE_SOURCE_DIR}/src)
