@@ -1,4 +1,8 @@
-# voiceTyper
+<p align="center">
+  <img src="voicetyper_256x256.png" alt="voiceTyper logo" width="128">
+</p>
+
+<h1 align="center">voiceTyper</h1>
 
 Local, privacy-friendly **voice typing** for the desktop. Put the cursor in any
 text field, press a global hotkey, speak, and the recognized text is pasted into
