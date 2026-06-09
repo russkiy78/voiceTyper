@@ -1,10 +1,13 @@
 #include "app/AppController.h"
+#include "core/FileLogging.h"
 #include "core/Logging.h"
 
 #include <QApplication>
 #include <QByteArray>
 #include <QLocalServer>
 #include <QLocalSocket>
+#include <QSettings>
+#include <QStandardPaths>
 #include <QString>
 
 // Logging category definitions (declared in core/Logging.h).
@@ -57,6 +60,24 @@ int main(int argc, char* argv[]) {
     if (forwardToRunningInstance(toggleRequested ? QByteArrayLiteral("toggle")
                                                  : QByteArrayLiteral("show")))
         return 0;
+
+    // Install file logging before anything else runs (AppController loads the
+    // ASR model — and may attempt a GPU init that hard-crashes — inside
+    // initialize()). Flushed per line, this turns an otherwise-silent crash into
+    // a log whose last entry pinpoints where it died. The key mirrors
+    // SettingsStore's "logging/enabled" (default on).
+    const bool loggingEnabled =
+        QSettings().value(QStringLiteral("logging/enabled"), true).toBool();
+    if (loggingEnabled) {
+        // Promote our categories to info level so the diagnostic context (the
+        // "Whisper compute backend: ..." line logged right before a GPU init)
+        // actually reaches the log; Qt disables info by default. Debug stays
+        // off. A user's QT_LOGGING_RULES env still overrides this.
+        QLoggingCategory::setFilterRules(QStringLiteral("voicetyper.*.info=true"));
+    }
+    vt::installFileLogging(
+        QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation),
+        loggingEnabled);
 
     vt::AppController controller;
     if (!controller.initialize())

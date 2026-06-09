@@ -33,10 +33,16 @@ public:
     [[nodiscard]] bool isReady() const override;
     [[nodiscard]] std::string backendName() const override;
 
+    // True when GPU compute init was requested but failed (threw / returned
+    // null) and the engine fell back to CPU in-process. Lets the caller persist
+    // CPU so it stops re-probing a GPU that can't run the model every launch.
+    [[nodiscard]] bool gpuInitFailed() const { return gpuInitFailed_; }
+
 private:
     whisper_context* ctx_ = nullptr;
     std::string modelPath_;
     std::string backendLabel_;
+    bool gpuInitFailed_ = false;
     mutable std::mutex mutex_;
 };
 

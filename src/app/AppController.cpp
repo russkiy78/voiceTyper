@@ -6,6 +6,7 @@
 #include "audio/AudioRecorder.h"
 #include "clipboard/ClipboardPasteService.h"
 #include "commands/CommandConfig.h"
+#include "core/FileLogging.h"
 #include "core/Logging.h"
 #include "hotkey/HotkeyService.h"
 #include "postprocess/HttpTextPostProcessor.h"
@@ -22,6 +23,7 @@
 #endif
 
 #include <QCoreApplication>
+#include <QFileInfo>
 #include <QtGlobal>
 
 namespace vt {
@@ -78,6 +80,10 @@ bool AppController::initialize() {
         qCWarning(vtApp) << "System tray not available on this platform";
     tray_->show();
 
+    // buildAsrEngine() ran before the tray existed; surface any recovery note
+    // (GPU->CPU fallback or a quarantined model) now that we can show it.
+    flushPendingNotice();
+
     if (!asr_->isReady()) {
         tray_->showMessage(
             tr("voiceTyper"),
@@ -95,20 +101,103 @@ void AppController::buildAsrEngine() {
     lastComputeBackend_ = settings_->computeBackend();
 
 #ifdef VOICETYPER_WITH_WHISPER
-    if (!lastModelPath_.isEmpty()) {
-        const ResolvedBackend rb =
-            resolveBackend(lastComputeBackend_.toStdString());
-        asr_ = std::make_unique<WhisperAsrEngine>(
-            lastModelPath_.toStdString(), rb.useGpu, rb.gpuDevice, false,
-            rb.label);
-        if (!asr_->isReady())
-            qCWarning(vtAsr) << "Model failed to load:" << lastModelPath_;
-    } else {
+    if (lastModelPath_.isEmpty()) {
         asr_ = std::make_unique<NullAsrEngine>();
+        flushPendingNotice();
+        return;
     }
+
+    // A model previously quarantined for crashing the loader stays disabled
+    // until the user explicitly re-picks it (setModelPath lifts the quarantine).
+    if (lastModelPath_ == settings_->quarantinedModel()) {
+        qCWarning(vtAsr) << "Model is quarantined (crashed the loader before):"
+                         << lastModelPath_ << "- not loading.";
+        pendingNotice_ =
+            tr("voiceTyper disabled \"%1\" because it crashed while loading. "
+               "Pick a different model in Settings (try a smaller one).")
+                .arg(QFileInfo(lastModelPath_).fileName());
+        asr_ = std::make_unique<NullAsrEngine>();
+        flushPendingNotice();
+        return;
+    }
+
+    ResolvedBackend rb = resolveBackend(lastComputeBackend_.toStdString());
+
+    // (A) Crash-safe model load. Loading a model can hard-crash the process in
+    // ways C++ can't catch (a GPU GGML_ABORT, or on CPU an OOM that segfaults on
+    // a null tensor buffer / trips WHISPER_ASSERT), so we leave a breadcrumb on
+    // disk before the load and clear it on success. Finding it still set means
+    // the previous load of THIS model killed the app — escalate the recovery:
+    //   - a crashed GPU load  -> retry on CPU (the GPU may just be unable to run
+    //                            the model; CPU still might);
+    //   - a crashed CPU load  -> the model itself is unloadable here, quarantine
+    //                            it so we stop crash-looping.
+    if (settings_->loadAttemptPath() == lastModelPath_) {
+        const bool wasGpu = settings_->loadAttemptWasGpu();
+        settings_->clearLoadAttempt();
+        if (wasGpu) {
+            qCWarning(vtAsr) << "Previous GPU load of" << lastModelPath_
+                             << "crashed; forcing CPU.";
+            settings_->setComputeBackend(QStringLiteral("cpu"));
+            lastComputeBackend_ = QStringLiteral("cpu");
+            rb = resolveBackend("cpu");
+            pendingNotice_ =
+                tr("GPU acceleration crashed last time, so voiceTyper switched "
+                   "to CPU. Re-enable it in Settings to try again.");
+        } else {
+            qCWarning(vtAsr) << "Previous CPU load of" << lastModelPath_
+                             << "crashed; quarantining the model.";
+            settings_->setQuarantinedModel(lastModelPath_);
+            pendingNotice_ =
+                tr("voiceTyper disabled \"%1\" because it crashed while loading. "
+                   "Pick a different model in Settings (try a smaller one).")
+                    .arg(QFileInfo(lastModelPath_).fileName());
+            asr_ = std::make_unique<NullAsrEngine>();
+            flushPendingNotice();
+            return;
+        }
+    } else if (!settings_->loadAttemptPath().isEmpty()) {
+        // Stale breadcrumb from a different model (user changed models since).
+        settings_->clearLoadAttempt();
+    }
+
+    // Breadcrumb written (and flushed) right before the possibly-fatal load,
+    // then cleared once we return from it alive.
+    settings_->setLoadAttempt(lastModelPath_, rb.useGpu);
+
+    auto engine = std::make_unique<WhisperAsrEngine>(
+        lastModelPath_.toStdString(), rb.useGpu, rb.gpuDevice, false, rb.label);
+
+    settings_->clearLoadAttempt();
+
+    // (B) The engine catches *recoverable* GPU init failures and falls back to
+    // CPU in-process. If that happened, persist CPU too so we stop re-probing a
+    // GPU that can't run the model on every launch, and tell the user.
+    if (engine->gpuInitFailed()) {
+        settings_->setComputeBackend(QStringLiteral("cpu"));
+        lastComputeBackend_ = QStringLiteral("cpu");
+        if (pendingNotice_.isEmpty())
+            pendingNotice_ =
+                tr("GPU acceleration couldn't start, so voiceTyper is using "
+                   "CPU. Re-enable it in Settings to try again.");
+    }
+
+    if (!engine->isReady())
+        qCWarning(vtAsr) << "Model failed to load:" << lastModelPath_;
+
+    asr_ = std::move(engine);
 #else
     asr_ = std::make_unique<NullAsrEngine>();
 #endif
+
+    flushPendingNotice();
+}
+
+void AppController::flushPendingNotice() {
+    if (pendingNotice_.isEmpty() || !tray_)
+        return;
+    tray_->showMessage(tr("voiceTyper"), pendingNotice_);
+    pendingNotice_.clear();
 }
 
 void AppController::rebuildRecording() {
@@ -282,6 +371,7 @@ void AppController::onSettingsApplied() {
     reloadCommands();
     buildPostProcessor();
     applyHotkey();
+    setFileLoggingEnabled(settings_->loggingEnabled());
 
     // Rebuild the ASR backend (and the recorder that borrows it) if the model
     // or the compute backend changed. Settings are only edited while idle, so

@@ -62,6 +62,13 @@ std::vector<ComputeDevice> enumerateComputeDevices() {
 }
 
 ResolvedBackend resolveBackend(const std::string& wantedId) {
+    // Explicit CPU: return BEFORE enumerating devices. enumerateComputeDevices()
+    // initializes every compiled-in ggml backend — including CUDA registration,
+    // which can abort() on a half-broken driver (device present but a property
+    // query fails). A user who chose CPU must never pay that risk here.
+    if (wantedId == "cpu")
+        return {false, 0, "CPU"};
+
     const std::vector<ComputeDevice> devices = enumerateComputeDevices();
 
     const ComputeDevice* firstGpu = nullptr;
@@ -71,9 +78,6 @@ ResolvedBackend resolveBackend(const std::string& wantedId) {
             break;
         }
     }
-
-    if (wantedId == "cpu")
-        return {false, 0, "CPU"};
 
     // Empty / "auto": prefer the first GPU, else CPU.
     if (wantedId.empty() || wantedId == "auto") {

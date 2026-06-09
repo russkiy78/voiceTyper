@@ -33,6 +33,25 @@ public:
     QString computeBackend() const;
     void setComputeBackend(const QString& id);
 
+    // Crash breadcrumb covering the WHOLE model load (CPU and GPU). Loading a
+    // whisper model can hard-crash the process in ways C++ can't catch — a GPU
+    // GGML_ABORT, or on the CPU path an OOM that segfaults on a null tensor
+    // buffer / trips WHISPER_ASSERT. AppController writes this (model path +
+    // whether GPU was used) right before whisper init and clears it on success.
+    // If it's still set next launch, that exact load killed the app, so the
+    // recovery escalates: a crashed GPU load → retry on CPU; a crashed CPU load
+    // → quarantine the model. Writes are flushed immediately; no changed().
+    QString loadAttemptPath() const;
+    bool loadAttemptWasGpu() const;
+    void setLoadAttempt(const QString& modelPath, bool gpu);
+    void clearLoadAttempt();
+
+    // A model that crashed the loader even on CPU is quarantined so the app
+    // stops crash-looping on it. Cleared whenever the user explicitly picks a
+    // model (setModelPath), so re-selecting it is an explicit retry.
+    QString quarantinedModel() const;
+    void setQuarantinedModel(const QString& modelPath);
+
 
 
     // --- Hotkey ----------------------------------------------------------
@@ -63,6 +82,12 @@ public:
 
     QString postProcessEndpoint() const;
     void setPostProcessEndpoint(const QString& url);
+
+    // --- Diagnostics -----------------------------------------------------
+    // Write a diagnostic log file (<configDir>/voicetyper.log). On by default
+    // so that otherwise-silent crashes leave a trace.
+    bool loggingEnabled() const;
+    void setLoggingEnabled(bool on);
 
     // --- Commands config file -------------------------------------------
     QString configDir() const;

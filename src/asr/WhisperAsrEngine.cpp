@@ -99,6 +99,33 @@ void dumpWavDebug(const std::vector<float>& samples, int sampleRate) {
     qCInfo(vtAsr) << "VT_DUMP_WAV: wrote" << samples.size() << "samples to" << path;
 }
 
+// Loads a whisper context, swallowing C++ exceptions thrown by the compute
+// backend during init. ggml-vulkan (Vulkan-Hpp) throws vk::SystemError when
+// device / buffer / pipeline setup fails on a GPU that enumerated but can't
+// actually run the model; without this the exception unwinds all the way into
+// main() and terminates the app. Returns nullptr on failure instead.
+// NOTE: this CANNOT catch a hard abort() such as CUDA's GGML_ABORT — that path
+// is covered by the on-disk crash breadcrumb in AppController::buildAsrEngine.
+whisper_context* initWhisperContext(const std::string& modelPath, bool useGpu,
+                                    int gpuDevice, bool flashAttn) {
+    whisper_context_params cparams = whisper_context_default_params();
+    cparams.use_gpu = useGpu;
+    cparams.gpu_device = gpuDevice;
+    // Flash attention pinned explicitly (upstream flipped the default to ON in
+    // v1.8.0) so a version bump never changes decode behaviour silently and the
+    // two modes can be benchmarked head-to-head.
+    cparams.flash_attn = flashAttn;
+    try {
+        return whisper_init_from_file_with_params(modelPath.c_str(), cparams);
+    } catch (const std::exception& e) {
+        qCWarning(vtAsr) << "whisper init threw:" << e.what();
+        return nullptr;
+    } catch (...) {
+        qCWarning(vtAsr) << "whisper init threw a non-std exception";
+        return nullptr;
+    }
+}
+
 } // namespace
 
 WhisperAsrEngine::WhisperAsrEngine(const std::string& modelPath, bool useGpu,
@@ -110,23 +137,28 @@ WhisperAsrEngine::WhisperAsrEngine(const std::string& modelPath, bool useGpu,
         return;
     }
 
-    whisper_context_params cparams = whisper_context_default_params();
-    // Compute backend chosen in settings and resolved by ComputeBackends. When
-    // use_gpu is true but no matching GPU initializes, whisper.cpp falls back to
-    // CPU on its own, so this is always safe.
-    cparams.use_gpu = useGpu;
-    cparams.gpu_device = gpuDevice;
-    // Flash attention. We pin it explicitly (rather than inheriting the upstream
-    // default, which became ON in v1.8.0) so a version bump never changes decode
-    // behaviour silently and the two modes can be benchmarked head-to-head.
-    cparams.flash_attn = flashAttn;
     qCInfo(vtAsr) << "Whisper compute backend:"
                   << QString::fromStdString(
                          backendLabel_.empty()
                              ? (useGpu ? std::string("GPU") : std::string("CPU"))
                              : backendLabel_)
                   << "flash_attn:" << flashAttn;
-    ctx_ = whisper_init_from_file_with_params(modelPath.c_str(), cparams);
+
+    ctx_ = initWhisperContext(modelPath, useGpu, gpuDevice, flashAttn);
+
+    // (B) GPU init failed but didn't hard-crash the process: retry on CPU so the
+    // app stays usable instead of being left with no engine at all. The caller
+    // reads gpuInitFailed() to persist the CPU choice and stop re-probing a GPU
+    // that can't run the model on every launch.
+    if (!ctx_ && useGpu) {
+        gpuInitFailed_ = true;
+        qCWarning(vtAsr) << "GPU compute init failed; retrying on CPU for"
+                         << QString::fromStdString(modelPath);
+        backendLabel_ = "CPU (GPU init failed)";
+        ctx_ = initWhisperContext(modelPath, /*useGpu=*/false, /*gpuDevice=*/0,
+                                  flashAttn);
+    }
+
     if (!ctx_)
         qCWarning(vtAsr) << "Failed to load whisper model:"
                          << QString::fromStdString(modelPath);

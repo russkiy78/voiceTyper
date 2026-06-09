@@ -116,6 +116,12 @@ void SettingsWindow::buildUi() {
     clipboardDelay_->setSingleStep(50);
     form->addRow(tr("Clipboard restore delay:"), clipboardDelay_);
 
+    logEnabled_ = new QCheckBox(tr("Write a diagnostic log file"), this);
+    logEnabled_->setToolTip(
+        tr("Logs to voicetyper.log in the app config folder. Useful for "
+           "diagnosing crashes (e.g. GPU init failures)."));
+    form->addRow(QString(), logEnabled_);
+
     root->addLayout(form);
 
     // --- Command detection loop ---------------------------------------
@@ -240,6 +246,7 @@ void SettingsWindow::loadFromSettings() {
 
 
     overlayEnabled_->setChecked(settings_->overlayEnabled());
+    logEnabled_->setChecked(settings_->loggingEnabled());
     clipboardDelay_->setValue(settings_->clipboardRestoreDelayMs());
 
     cdEnabled_->setChecked(settings_->commandDetectionEnabled());
@@ -285,6 +292,7 @@ void SettingsWindow::apply() {
     settings_->setComputeBackend(computeBackend_->currentData().toString());
 
     settings_->setOverlayEnabled(overlayEnabled_->isChecked());
+    settings_->setLoggingEnabled(logEnabled_->isChecked());
     settings_->setClipboardRestoreDelayMs(clipboardDelay_->value());
     settings_->setCommandDetectionEnabled(cdEnabled_->isChecked());
     settings_->setCommandDetectionIntervalMs(cdInterval_->value());

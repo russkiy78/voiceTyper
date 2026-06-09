@@ -19,6 +19,10 @@ constexpr auto kTranslate = "asr/translate";
 constexpr auto kThreads = "asr/threads";
 constexpr auto kModelPath = "asr/modelPath";
 constexpr auto kComputeBackend = "asr/computeBackend";
+constexpr auto kLoadPendingPath = "asr/loadPendingPath";
+constexpr auto kLoadPendingGpu = "asr/loadPendingGpu";
+constexpr auto kQuarantinedModel = "asr/quarantinedModel";
+constexpr auto kLoggingEnabled = "logging/enabled";
 
 constexpr auto kHotkey = "hotkey/sequence";
 constexpr auto kOverlay = "overlay/enabled";
@@ -66,7 +70,11 @@ QString SettingsStore::modelPath() const {
     return autodetectModelPath();
 }
 void SettingsStore::setModelPath(const QString& path) {
-    QSettings().setValue(keys::kModelPath, path);
+    QSettings s;
+    s.setValue(keys::kModelPath, path);
+    // Picking a model is an explicit choice: lift any quarantine so re-selecting
+    // a previously-crashing model is treated as a deliberate retry.
+    s.remove(keys::kQuarantinedModel);
     emit changed();
 }
 
@@ -76,6 +84,34 @@ QString SettingsStore::computeBackend() const {
 void SettingsStore::setComputeBackend(const QString& id) {
     QSettings().setValue(keys::kComputeBackend, id);
     emit changed();
+}
+
+QString SettingsStore::loadAttemptPath() const {
+    return QSettings().value(keys::kLoadPendingPath).toString();
+}
+bool SettingsStore::loadAttemptWasGpu() const {
+    return QSettings().value(keys::kLoadPendingGpu, false).toBool();
+}
+void SettingsStore::setLoadAttempt(const QString& modelPath, bool gpu) {
+    QSettings s;
+    s.setValue(keys::kLoadPendingPath, modelPath);
+    s.setValue(keys::kLoadPendingGpu, gpu);
+    s.sync(); // flush now: the very next step may crash the whole process
+}
+void SettingsStore::clearLoadAttempt() {
+    QSettings s;
+    s.remove(keys::kLoadPendingPath);
+    s.remove(keys::kLoadPendingGpu);
+    s.sync();
+}
+
+QString SettingsStore::quarantinedModel() const {
+    return QSettings().value(keys::kQuarantinedModel).toString();
+}
+void SettingsStore::setQuarantinedModel(const QString& modelPath) {
+    QSettings s;
+    s.setValue(keys::kQuarantinedModel, modelPath);
+    s.sync();
 }
 
 
@@ -141,6 +177,14 @@ QString SettingsStore::postProcessEndpoint() const {
 }
 void SettingsStore::setPostProcessEndpoint(const QString& url) {
     QSettings().setValue(keys::kPpEndpoint, url);
+    emit changed();
+}
+
+bool SettingsStore::loggingEnabled() const {
+    return QSettings().value(keys::kLoggingEnabled, true).toBool();
+}
+void SettingsStore::setLoggingEnabled(bool on) {
+    QSettings().setValue(keys::kLoggingEnabled, on);
     emit changed();
 }
 

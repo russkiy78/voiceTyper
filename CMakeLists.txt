@@ -77,6 +77,8 @@ set(VOICETYPER_SOURCES
     src/settings/SettingsStore.h
 
     src/core/AudioBuffer.h
+    src/core/FileLogging.cpp
+    src/core/FileLogging.h
     src/core/Logging.h
 
     src/ui/OverlayWindow.cpp
