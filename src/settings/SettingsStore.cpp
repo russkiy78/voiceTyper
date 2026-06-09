@@ -36,7 +36,7 @@ SettingsStore::SettingsStore(QObject* parent) : QObject(parent) {
 }
 
 QString SettingsStore::language() const {
-    return QSettings().value(keys::kLanguage, "ru").toString();
+    return QSettings().value(keys::kLanguage, "auto").toString();
 }
 void SettingsStore::setLanguage(const QString& code) {
     QSettings().setValue(keys::kLanguage, code);
@@ -81,7 +81,7 @@ void SettingsStore::setComputeBackend(const QString& id) {
 
 
 QString SettingsStore::hotkey() const {
-    return QSettings().value(keys::kHotkey, "Ctrl+Alt+Space").toString();
+    return QSettings().value(keys::kHotkey, "Ctrl+Alt+V").toString();
 }
 void SettingsStore::setHotkey(const QString& seq) {
     QSettings().setValue(keys::kHotkey, seq);
