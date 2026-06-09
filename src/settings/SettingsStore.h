@@ -38,21 +38,13 @@ public:
     // GGML_ABORT, or on the CPU path an OOM that segfaults on a null tensor
     // buffer / trips WHISPER_ASSERT. AppController writes this (model path +
     // whether GPU was used) right before whisper init and clears it on success.
-    // If it's still set next launch, that exact load killed the app, so the
-    // recovery escalates: a crashed GPU load → retry on CPU; a crashed CPU load
-    // → quarantine the model. Writes are flushed immediately; no changed().
+    // If it's still set next launch, that exact load killed the app, so a
+    // crashed GPU load is retried on CPU. Writes are flushed immediately; no
+    // changed().
     QString loadAttemptPath() const;
     bool loadAttemptWasGpu() const;
     void setLoadAttempt(const QString& modelPath, bool gpu);
     void clearLoadAttempt();
-
-    // A model that crashed the loader even on CPU is quarantined so the app
-    // stops crash-looping on it. Cleared whenever the user explicitly picks a
-    // model (setModelPath), so re-selecting it is an explicit retry.
-    QString quarantinedModel() const;
-    void setQuarantinedModel(const QString& modelPath);
-
-
 
     // --- Hotkey ----------------------------------------------------------
     QString hotkey() const;              // e.g. "Ctrl+Alt+Space"

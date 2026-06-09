@@ -21,7 +21,6 @@ constexpr auto kModelPath = "asr/modelPath";
 constexpr auto kComputeBackend = "asr/computeBackend";
 constexpr auto kLoadPendingPath = "asr/loadPendingPath";
 constexpr auto kLoadPendingGpu = "asr/loadPendingGpu";
-constexpr auto kQuarantinedModel = "asr/quarantinedModel";
 constexpr auto kLoggingEnabled = "logging/enabled";
 
 constexpr auto kHotkey = "hotkey/sequence";
@@ -72,9 +71,6 @@ QString SettingsStore::modelPath() const {
 void SettingsStore::setModelPath(const QString& path) {
     QSettings s;
     s.setValue(keys::kModelPath, path);
-    // Picking a model is an explicit choice: lift any quarantine so re-selecting
-    // a previously-crashing model is treated as a deliberate retry.
-    s.remove(keys::kQuarantinedModel);
     emit changed();
 }
 
@@ -102,15 +98,6 @@ void SettingsStore::clearLoadAttempt() {
     QSettings s;
     s.remove(keys::kLoadPendingPath);
     s.remove(keys::kLoadPendingGpu);
-    s.sync();
-}
-
-QString SettingsStore::quarantinedModel() const {
-    return QSettings().value(keys::kQuarantinedModel).toString();
-}
-void SettingsStore::setQuarantinedModel(const QString& modelPath) {
-    QSettings s;
-    s.setValue(keys::kQuarantinedModel, modelPath);
     s.sync();
 }
 

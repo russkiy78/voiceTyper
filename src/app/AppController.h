@@ -49,9 +49,8 @@ private slots:
 
 private:
     void buildAsrEngine();
-    // Shows the recovery note set by buildAsrEngine() (GPU->CPU fallback, or a
-    // quarantined model) once a tray exists — buildAsrEngine runs before the
-    // tray during initialize().
+    // Shows the recovery note set by buildAsrEngine() (GPU->CPU fallback) once a
+    // tray exists — buildAsrEngine runs before the tray during initialize().
     void flushPendingNotice();
     void rebuildRecording();
     void wireRecordingController();
@@ -78,8 +77,7 @@ private:
     QString lastComputeBackend_;
 
     // Set by buildAsrEngine() when a recovery happened (GPU disabled after a
-    // failure, or a model quarantined after it crashed the loader); shown via
-    // the tray when one is available, then cleared.
+    // failure); shown via the tray when one is available, then cleared.
     QString pendingNotice_;
 
     bool processing_ = false;

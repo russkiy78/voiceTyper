@@ -31,6 +31,24 @@ function(voicetyper_add_whisper)
     set(BUILD_SHARED_LIBS      OFF CACHE BOOL "" FORCE)
 
     # ------------------------------------------------------------------
+    # Portable CPU baseline. ggml's GGML_NATIVE defaults ON, which compiles the
+    # CPU backend for the *build host's* exact ISA: -march=native on GCC/Clang,
+    # and on MSVC FindSIMD.cmake probes the build machine and silently flips to
+    # /arch:AVX512 if that machine has AVX-512. The resulting binary then hits an
+    # illegal instruction (Windows: 0xC000001D STATUS_ILLEGAL_INSTRUCTION; a hard
+    # crash try/catch cannot catch) the moment it runs on a client CPU missing
+    # that ISA — e.g. any consumer Alder/Raptor Lake laptop (AVX2 but no AVX-512).
+    # That was the "crashes on some Win11 machines, not others" + crash-quarantine
+    # report. Pin a fixed baseline so the release never inherits the build host.
+    # AVX2 (Haswell, 2013+) covers effectively all current x86; drop AVX2/FMA/F16C
+    # to GGML_AVX / GGML_SSE42 if pre-AVX2 CPUs must be supported.
+    set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
+    set(GGML_AVX2   ON  CACHE BOOL "" FORCE)
+    set(GGML_FMA    ON  CACHE BOOL "" FORCE)
+    set(GGML_F16C   ON  CACHE BOOL "" FORCE)
+    set(GGML_AVX512 OFF CACHE BOOL "" FORCE)
+
+    # ------------------------------------------------------------------
     # GPU backends. Auto-detect the toolchains present on THIS build host and
     # compile in whatever is available. The user then picks CPU / Vulkan / CUDA
     # at runtime (ComputeBackends enumerates live devices), so a backend only

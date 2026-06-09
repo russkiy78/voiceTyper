@@ -23,7 +23,6 @@
 #endif
 
 #include <QCoreApplication>
-#include <QFileInfo>
 #include <QtGlobal>
 
 namespace vt {
@@ -81,7 +80,7 @@ bool AppController::initialize() {
     tray_->show();
 
     // buildAsrEngine() ran before the tray existed; surface any recovery note
-    // (GPU->CPU fallback or a quarantined model) now that we can show it.
+    // (GPU->CPU fallback) now that we can show it.
     flushPendingNotice();
 
     if (!asr_->isReady()) {
@@ -107,57 +106,27 @@ void AppController::buildAsrEngine() {
         return;
     }
 
-    // A model previously quarantined for crashing the loader stays disabled
-    // until the user explicitly re-picks it (setModelPath lifts the quarantine).
-    if (lastModelPath_ == settings_->quarantinedModel()) {
-        qCWarning(vtAsr) << "Model is quarantined (crashed the loader before):"
-                         << lastModelPath_ << "- not loading.";
-        pendingNotice_ =
-            tr("voiceTyper disabled \"%1\" because it crashed while loading. "
-               "Pick a different model in Settings (try a smaller one).")
-                .arg(QFileInfo(lastModelPath_).fileName());
-        asr_ = std::make_unique<NullAsrEngine>();
-        flushPendingNotice();
-        return;
-    }
-
     ResolvedBackend rb = resolveBackend(lastComputeBackend_.toStdString());
 
-    // (A) Crash-safe model load. Loading a model can hard-crash the process in
-    // ways C++ can't catch (a GPU GGML_ABORT, or on CPU an OOM that segfaults on
-    // a null tensor buffer / trips WHISPER_ASSERT), so we leave a breadcrumb on
-    // disk before the load and clear it on success. Finding it still set means
-    // the previous load of THIS model killed the app — escalate the recovery:
-    //   - a crashed GPU load  -> retry on CPU (the GPU may just be unable to run
-    //                            the model; CPU still might);
-    //   - a crashed CPU load  -> the model itself is unloadable here, quarantine
-    //                            it so we stop crash-looping.
-    if (settings_->loadAttemptPath() == lastModelPath_) {
-        const bool wasGpu = settings_->loadAttemptWasGpu();
+    // (A) Crash-safe GPU load. A GPU model load can hard-crash the process in a
+    // way C++ can't catch (a CUDA GGML_ABORT, or a driver/device fault), so we
+    // leave a breadcrumb on disk before the load and clear it on success. A GPU
+    // breadcrumb still set next launch means that load killed the app: retry on
+    // CPU, which may run the model even when the GPU can't.
+    if (settings_->loadAttemptPath() == lastModelPath_ &&
+        settings_->loadAttemptWasGpu()) {
         settings_->clearLoadAttempt();
-        if (wasGpu) {
-            qCWarning(vtAsr) << "Previous GPU load of" << lastModelPath_
-                             << "crashed; forcing CPU.";
-            settings_->setComputeBackend(QStringLiteral("cpu"));
-            lastComputeBackend_ = QStringLiteral("cpu");
-            rb = resolveBackend("cpu");
-            pendingNotice_ =
-                tr("GPU acceleration crashed last time, so voiceTyper switched "
-                   "to CPU. Re-enable it in Settings to try again.");
-        } else {
-            qCWarning(vtAsr) << "Previous CPU load of" << lastModelPath_
-                             << "crashed; quarantining the model.";
-            settings_->setQuarantinedModel(lastModelPath_);
-            pendingNotice_ =
-                tr("voiceTyper disabled \"%1\" because it crashed while loading. "
-                   "Pick a different model in Settings (try a smaller one).")
-                    .arg(QFileInfo(lastModelPath_).fileName());
-            asr_ = std::make_unique<NullAsrEngine>();
-            flushPendingNotice();
-            return;
-        }
+        qCWarning(vtAsr) << "Previous GPU load of" << lastModelPath_
+                         << "crashed; forcing CPU.";
+        settings_->setComputeBackend(QStringLiteral("cpu"));
+        lastComputeBackend_ = QStringLiteral("cpu");
+        rb = resolveBackend("cpu");
+        pendingNotice_ =
+            tr("GPU acceleration crashed last time, so voiceTyper switched "
+               "to CPU. Re-enable it in Settings to try again.");
     } else if (!settings_->loadAttemptPath().isEmpty()) {
-        // Stale breadcrumb from a different model (user changed models since).
+        // Any other leftover breadcrumb — a crashed CPU load (just retried) or a
+        // stale one from a different model. Clear it and load normally.
         settings_->clearLoadAttempt();
     }
 
