@@ -14,6 +14,7 @@
 #include "settings/SettingsStore.h"
 #include "ui/OverlayWindow.h"
 #include "ui/SettingsWindow.h"
+#include "ui/ToastOverlay.h"
 #include "ui/TrayController.h"
 
 #include "asr/ComputeBackends.h"
@@ -33,6 +34,7 @@ AppController::~AppController() {
     if (worker_.joinable())
         worker_.join();
     delete overlay_;
+    delete toast_;
     delete settingsWindow_;
 }
 
@@ -53,6 +55,7 @@ bool AppController::initialize() {
             });
 
     overlay_ = new OverlayWindow();
+    toast_   = new ToastOverlay();
 
     tray_ = new TrayController(this);
     connect(tray_, &TrayController::toggleRecordingRequested, this,
@@ -71,12 +74,24 @@ bool AppController::initialize() {
                     tray_->showMessage(tr("voiceTyper — hotkey"), reason);
             });
 
+    translateHotkey_ = HotkeyService::create(this);
+    connect(translateHotkey_, &HotkeyService::activated, this,
+            &AppController::toggleTranslate);
+    connect(translateHotkey_, &HotkeyService::registrationFailed, this,
+            [this](const QString& reason) {
+                qCWarning(vtApp) << "Translation hotkey registration failed:" << reason;
+                if (tray_)
+                    tray_->showMessage(tr("voiceTyper — translation hotkey"), reason);
+            });
+
     rebuildRecording();
 
     applyHotkey();
+    applyTranslateHotkey();
 
     if (!tray_->isAvailable())
         qCWarning(vtApp) << "System tray not available on this platform";
+    tray_->setTranslate(settings_->translate());
     tray_->show();
 
     // buildAsrEngine() ran before the tray existed; surface any recovery note
@@ -216,6 +231,26 @@ void AppController::applyHotkey() {
         hotkey_->setHotkey(settings_->hotkey());
 }
 
+void AppController::applyTranslateHotkey() {
+    if (!translateHotkey_)
+        return;
+    const QString seq = settings_->translateHotkey();
+    if (seq.isEmpty())
+        translateHotkey_->unregisterHotkey();
+    else
+        translateHotkey_->setHotkey(seq);
+}
+
+void AppController::toggleTranslate() {
+    const bool on = !settings_->translate();
+    settings_->setTranslate(on);
+    if (tray_)
+        tray_->setTranslate(on);
+    if (toast_)
+        toast_->showToast(on ? tr("Translation to English: on")
+                             : tr("Translation to English: off"));
+}
+
 void AppController::toggleRecording() {
     if (!recording_)
         return;
@@ -336,10 +371,13 @@ void AppController::finishTranscription(const QString& rawText) {
 }
 
 void AppController::onSettingsApplied() {
+    if (tray_)
+        tray_->setTranslate(settings_->translate());
     paste_->setRestoreDelayMs(settings_->clipboardRestoreDelayMs());
     reloadCommands();
     buildPostProcessor();
     applyHotkey();
+    applyTranslateHotkey();
     setFileLoggingEnabled(settings_->loggingEnabled());
 
     // Rebuild the ASR backend (and the recorder that borrows it) if the model
@@ -370,6 +408,8 @@ void AppController::quit() {
         recording_->stopRecording();
     if (hotkey_)
         hotkey_->unregisterHotkey();
+    if (translateHotkey_)
+        translateHotkey_->unregisterHotkey();
     if (worker_.joinable())
         worker_.join();
     QCoreApplication::quit();

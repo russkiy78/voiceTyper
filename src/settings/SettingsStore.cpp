@@ -24,6 +24,7 @@ constexpr auto kLoadPendingGpu = "asr/loadPendingGpu";
 constexpr auto kLoggingEnabled = "logging/enabled";
 
 constexpr auto kHotkey = "hotkey/sequence";
+constexpr auto kTranslateHotkey = "hotkey/translateSequence";
 constexpr auto kOverlay = "overlay/enabled";
 constexpr auto kClipboardDelay = "clipboard/restoreDelayMs";
 constexpr auto kCdEnabled = "commandDetection/enabled";
@@ -108,6 +109,14 @@ QString SettingsStore::hotkey() const {
 }
 void SettingsStore::setHotkey(const QString& seq) {
     QSettings().setValue(keys::kHotkey, seq);
+    emit changed();
+}
+
+QString SettingsStore::translateHotkey() const {
+    return QSettings().value(keys::kTranslateHotkey, "Ctrl+Alt+;").toString();
+}
+void SettingsStore::setTranslateHotkey(const QString& seq) {
+    QSettings().setValue(keys::kTranslateHotkey, seq);
     emit changed();
 }
 

@@ -17,6 +17,7 @@ class RecordingController;
 class ClipboardPasteService;
 class HotkeyService;
 class OverlayWindow;
+class ToastOverlay;
 class TrayController;
 class SettingsWindow;
 
@@ -46,6 +47,7 @@ private slots:
     void onLevel(double level);
     void onDuration(double seconds);
     void onSettingsApplied();
+    void toggleTranslate();
 
 private:
     void buildAsrEngine();
@@ -56,6 +58,7 @@ private:
     void wireRecordingController();
     void buildPostProcessor();
     void applyHotkey();
+    void applyTranslateHotkey();
     void reloadCommands();
     void startTranscription();
     void finishTranscription(const QString& rawText);
@@ -68,7 +71,9 @@ private:
     RecordingController* recording_ = nullptr;
     ClipboardPasteService* paste_ = nullptr;
     HotkeyService* hotkey_ = nullptr;
+    HotkeyService* translateHotkey_ = nullptr;
     OverlayWindow* overlay_ = nullptr;
+    ToastOverlay* toast_ = nullptr;
     TrayController* tray_ = nullptr;
     SettingsWindow* settingsWindow_ = nullptr;
 

@@ -42,6 +42,7 @@ private:
     QComboBox* language_ = nullptr;
     QCheckBox* translate_ = nullptr;
     QKeySequenceEdit* hotkey_ = nullptr;
+    QKeySequenceEdit* translateHotkey_ = nullptr;
     QLineEdit* modelPath_ = nullptr;
     QComboBox* computeBackend_ = nullptr;
 

@@ -21,6 +21,7 @@ public:
 
     void show();
     void setRecording(bool recording);
+    void setTranslate(bool translate);
     void showMessage(const QString& title, const QString& body);
 
 signals:
@@ -29,12 +30,13 @@ signals:
     void quitRequested();
 
 private:
-    QIcon makeIcon(bool recording) const;
+    QIcon makeIcon(bool recording, bool translate) const;
 
     QSystemTrayIcon tray_;
     QMenu* menu_ = nullptr;
     QAction* toggleAction_ = nullptr;
     bool recording_ = false;
+    bool translate_ = false;
 };
 
 } // namespace vt

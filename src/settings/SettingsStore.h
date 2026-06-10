@@ -50,6 +50,9 @@ public:
     QString hotkey() const;              // e.g. "Ctrl+Alt+Space"
     void setHotkey(const QString& seq);
 
+    QString translateHotkey() const;     // toggle translate-to-English
+    void setTranslateHotkey(const QString& seq);
+
     // --- Overlay ---------------------------------------------------------
     bool overlayEnabled() const;
     void setOverlayEnabled(bool on);

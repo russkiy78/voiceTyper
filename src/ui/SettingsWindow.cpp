@@ -41,9 +41,13 @@ const Lang kLanguages[] = {
 SettingsWindow::SettingsWindow(SettingsStore* settings, QWidget* parent)
     : QDialog(parent), settings_(settings) {
     setWindowTitle(tr("voiceTyper — Settings"));
-    setMinimumSize(560, 640);
+    setMinimumSize(560, 770);
     buildUi();
     loadFromSettings();
+    // Keep the translate checkbox in sync with external changes (e.g. hotkey toggle).
+    connect(settings_, &SettingsStore::changed, this, [this]() {
+        translate_->setChecked(settings_->translate());
+    });
 }
 
 void SettingsWindow::buildUi() {
@@ -66,6 +70,12 @@ void SettingsWindow::buildUi() {
 #endif
     form->addRow(tr("Global hotkey:"), hotkey_);
 
+    translateHotkey_ = new QKeySequenceEdit(this);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
+    translateHotkey_->setMaximumSequenceLength(1);
+#endif
+    form->addRow(tr("Translation toggle hotkey:"), translateHotkey_);
+
     // Model path + browse button.
     modelPath_ = new QLineEdit(this);
     auto* browse = new QPushButton(tr("Browse..."), this);
@@ -74,25 +84,18 @@ void SettingsWindow::buildUi() {
     modelRow->setContentsMargins(0, 0, 0, 0);
     modelRow->addWidget(modelPath_, 1);
     modelRow->addWidget(browse);
+    form->addRow(tr("Whisper model:"), modelRow);
 
-    // Subtle link that opens a small dialog with direct model download links.
+    // Link for model downloads as a separate form row — avoids the QFormLayout
+    // squishing bug that occurs when a multi-row QWidget wrapper is used as a
+    // field widget and the computeBackend combo triggers a layout recalculation.
     auto* modelLink =
         new QLabel(tr("<a href=\"#\">Download models</a>"), this);
     modelLink->setTextInteractionFlags(Qt::TextBrowserInteraction);
     modelLink->setStyleSheet(QStringLiteral("font-size: 11px;"));
     connect(modelLink, &QLabel::linkActivated, this,
             &SettingsWindow::openModelDownloadsDialog);
-
-    // Stack the path row and the link in one form cell so the link sits right
-    // beneath the field (~2px) instead of a full form-row gap away.
-    auto* modelCol = new QVBoxLayout();
-    modelCol->setContentsMargins(0, 0, 0, 0);
-    modelCol->setSpacing(2);
-    modelCol->addLayout(modelRow);
-    modelCol->addWidget(modelLink);
-    auto* modelRowWidget = new QWidget(this);
-    modelRowWidget->setLayout(modelCol);
-    form->addRow(tr("Whisper model:"), modelRowWidget);
+    form->addRow(QString(), modelLink);
 
     // Compute backend: CPU is always present; Vulkan/CUDA entries appear only
     // when the build includes that backend AND a live device is detected.
@@ -228,6 +231,8 @@ void SettingsWindow::loadFromSettings() {
     translate_->setChecked(settings_->translate());
     hotkey_->setKeySequence(QKeySequence(settings_->hotkey(),
                                          QKeySequence::PortableText));
+    translateHotkey_->setKeySequence(QKeySequence(settings_->translateHotkey(),
+                                                   QKeySequence::PortableText));
     modelPath_->setText(settings_->modelPath());
 
     // Select the saved backend; if it's empty ("auto") or no longer available,
@@ -284,10 +289,12 @@ void SettingsWindow::apply() {
         return;
     }
 
-    settings_->setLanguage(language_->currentData().toString());
     settings_->setTranslate(translate_->isChecked());
+    settings_->setLanguage(language_->currentData().toString());
     settings_->setHotkey(
         hotkey_->keySequence().toString(QKeySequence::PortableText));
+    settings_->setTranslateHotkey(
+        translateHotkey_->keySequence().toString(QKeySequence::PortableText));
     settings_->setModelPath(modelPath_->text());
     settings_->setComputeBackend(computeBackend_->currentData().toString());
 

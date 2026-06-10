@@ -1,6 +1,7 @@
 #include "ui/TrayController.h"
 
 #include <QAction>
+#include <QFont>
 #include <QMenu>
 #include <QPainter>
 #include <QPixmap>
@@ -26,7 +27,7 @@ TrayController::TrayController(QObject* parent) : QObject(parent) {
     connect(quit, &QAction::triggered, this, &TrayController::quitRequested);
 
     tray_.setContextMenu(menu_);
-    tray_.setIcon(makeIcon(false));
+    tray_.setIcon(makeIcon(false, false));
     tray_.setToolTip(tr("voiceTyper — idle"));
 
     connect(&tray_, &QSystemTrayIcon::activated, this,
@@ -43,18 +44,23 @@ void TrayController::show() { tray_.show(); }
 
 void TrayController::setRecording(bool recording) {
     recording_ = recording;
-    tray_.setIcon(makeIcon(recording));
+    tray_.setIcon(makeIcon(recording_, translate_));
     tray_.setToolTip(recording ? tr("voiceTyper — recording") : tr("voiceTyper — idle"));
     if (toggleAction_)
         toggleAction_->setText(recording ? tr("Stop dictation")
                                          : tr("Start dictation"));
 }
 
+void TrayController::setTranslate(bool translate) {
+    translate_ = translate;
+    tray_.setIcon(makeIcon(recording_, translate_));
+}
+
 void TrayController::showMessage(const QString& title, const QString& body) {
     tray_.showMessage(title, body, QSystemTrayIcon::Information, 3000);
 }
 
-QIcon TrayController::makeIcon(bool recording) const {
+QIcon TrayController::makeIcon(bool recording, bool translate) const {
     // Draw a simple microphone glyph so the app needs no external icon asset.
     QPixmap pm(64, 64);
     pm.fill(Qt::transparent);
@@ -78,6 +84,19 @@ QIcon TrayController::makeIcon(bool recording) const {
     // Stem + base.
     p.drawLine(QPointF(32, 46), QPointF(32, 54));
     p.drawLine(QPointF(24, 54), QPointF(40, 54));
+
+    if (translate) {
+        const QRectF badge(8, 0, 56, 36);
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(34, 139, 34));
+        p.drawRoundedRect(badge, 6, 6);
+        p.setPen(Qt::white);
+        QFont f;
+        f.setPixelSize(26);
+        f.setBold(true);
+        p.setFont(f);
+        p.drawText(badge, Qt::AlignCenter, QStringLiteral("EN"));
+    }
 
     p.end();
     return QIcon(pm);

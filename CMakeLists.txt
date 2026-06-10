@@ -83,6 +83,8 @@ set(VOICETYPER_SOURCES
 
     src/ui/OverlayWindow.cpp
     src/ui/OverlayWindow.h
+    src/ui/ToastOverlay.cpp
+    src/ui/ToastOverlay.h
     src/ui/TrayController.cpp
     src/ui/TrayController.h
     src/ui/SettingsWindow.cpp
