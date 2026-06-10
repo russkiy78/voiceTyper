@@ -113,7 +113,7 @@ void SettingsStore::setHotkey(const QString& seq) {
 }
 
 QString SettingsStore::translateHotkey() const {
-    return QSettings().value(keys::kTranslateHotkey, "Ctrl+Alt+;").toString();
+    return QSettings().value(keys::kTranslateHotkey, "Ctrl+Alt+P").toString();
 }
 void SettingsStore::setTranslateHotkey(const QString& seq) {
     QSettings().setValue(keys::kTranslateHotkey, seq);

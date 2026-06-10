@@ -1,9 +1,23 @@
 cmake_minimum_required(VERSION 3.21)
 
 project(voiceTyper
-    VERSION 0.1.0
+    VERSION 0.2.0
     DESCRIPTION "Local voice typing utility (Qt6 + whisper.cpp)"
     LANGUAGES CXX)
+
+# Patch = git commit count so every commit auto-increments it without
+# touching CMakeLists.txt. Falls back to 0 in shallow/detached checkouts.
+execute_process(
+    COMMAND git rev-list --count HEAD
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    OUTPUT_VARIABLE VT_COMMIT_COUNT
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+if(NOT VT_COMMIT_COUNT MATCHES "^[0-9]+$")
+    set(VT_COMMIT_COUNT "0")
+endif()
+set(VT_VERSION "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${VT_COMMIT_COUNT}")
+message(STATUS "voiceTyper ${VT_VERSION}")
 
 # ----------------------------------------------------------------------------
 # Global settings
@@ -134,6 +148,8 @@ target_link_libraries(voiceTyper PRIVATE
     Qt6::Widgets
     Qt6::Multimedia
     Qt6::Network)
+
+target_compile_definitions(voiceTyper PRIVATE VT_VERSION="${VT_VERSION}")
 
 if(VOICETYPER_WITH_WHISPER)
     target_link_libraries(voiceTyper PRIVATE whisper)

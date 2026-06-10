@@ -48,7 +48,7 @@ int main(int argc, char* argv[]) {
 
     QApplication::setOrganizationName(QStringLiteral("voiceTyper"));
     QApplication::setApplicationName(QStringLiteral("voiceTyper"));
-    QApplication::setApplicationVersion(QStringLiteral("0.1.0"));
+    QApplication::setApplicationVersion(QStringLiteral(VT_VERSION));
 
     // Background tray utility: closing the settings window must not quit the app.
     QApplication::setQuitOnLastWindowClosed(false);

@@ -96,7 +96,7 @@ void dumpWavDebug(const std::vector<float>& samples, int sampleRate) {
         const float c = std::clamp(s, -1.0f, 1.0f);
         u16(static_cast<uint16_t>(static_cast<int16_t>(std::lround(c * 32767.0f))));
     }
-    qCInfo(vtAsr) << "VT_DUMP_WAV: wrote" << samples.size() << "samples to" << path;
+    qCInfo(vtAsr) << "VT_DUMP_WAV: wrote" << samples.size() << "samples to" << QString::fromStdString(path);
 }
 
 // Loads a whisper context, swallowing C++ exceptions thrown by the compute

@@ -1,6 +1,7 @@
 #include "ui/TrayController.h"
 
 #include <QAction>
+#include <QApplication>
 #include <QFont>
 #include <QMenu>
 #include <QPainter>
@@ -10,6 +11,12 @@ namespace vt {
 
 TrayController::TrayController(QObject* parent) : QObject(parent) {
     menu_ = new QMenu();
+
+    QAction* version = menu_->addAction(
+        QStringLiteral("voiceTyper v") + QApplication::applicationVersion());
+    version->setEnabled(false);
+
+    menu_->addSeparator();
 
     toggleAction_ = menu_->addAction(tr("Start dictation"));
     connect(toggleAction_, &QAction::triggered, this,

@@ -14,7 +14,12 @@ namespace vt {
 
 namespace {
 
-constexpr int kHotkeyId = 0xB001;
+// Base id for RegisterHotKey. Each service instance takes the next id from a
+// process-wide counter so that multiple hotkeys (e.g. record + translate) get
+// distinct ids — otherwise they collide on registration and, because every
+// instance installs its own native event filter, a single WM_HOTKEY would match
+// both filters and fire every service's activated() signal.
+constexpr int kHotkeyIdBase = 0xB001;
 
 UINT qtKeyToVk(int key) {
     if (key >= Qt::Key_A && key <= Qt::Key_Z)
@@ -58,6 +63,8 @@ class WinHotkeyService final : public HotkeyService,
                               public QAbstractNativeEventFilter {
 public:
     explicit WinHotkeyService(QObject* parent) : HotkeyService(parent) {
+        static int s_nextId = kHotkeyIdBase;
+        id_ = s_nextId++;
         qApp->installNativeEventFilter(this);
     }
     ~WinHotkeyService() override {
@@ -80,7 +87,7 @@ public:
         unregisterHotkey();
 
         const UINT mods = qtModsToWin(hk.modifiers) | MOD_NOREPEAT;
-        if (!RegisterHotKey(nullptr, kHotkeyId, mods, vk)) {
+        if (!RegisterHotKey(nullptr, id_, mods, vk)) {
             emit registrationFailed(
                 tr("Hotkey '%1' is already in use by another application.")
                     .arg(sequence));
@@ -94,7 +101,7 @@ public:
     void unregisterHotkey() override {
         if (!registered_)
             return;
-        UnregisterHotKey(nullptr, kHotkeyId);
+        UnregisterHotKey(nullptr, id_);
         registered_ = false;
     }
 
@@ -103,12 +110,13 @@ public:
         if (!registered_ || eventType != "windows_generic_MSG")
             return false;
         auto* msg = static_cast<MSG*>(message);
-        if (msg->message == WM_HOTKEY && msg->wParam == kHotkeyId)
+        if (msg->message == WM_HOTKEY && msg->wParam == static_cast<WPARAM>(id_))
             emit activated();
         return false;
     }
 
 private:
+    int id_ = kHotkeyIdBase;
     bool registered_ = false;
 };
 
