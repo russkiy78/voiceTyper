@@ -188,12 +188,25 @@ is removed on purge.
 
 ### Windows (`setup.exe`)
 
-Run the installer (`voiceTyper-<version>-setup.exe`). It bundles the full
-self-contained runtime — the executable, all Qt DLLs and plugins, the MSVC
-runtime, and GPU backend DLLs (CUDA cuBLAS / Vulkan loader) — and creates Start
-Menu / optional Desktop shortcuts. No Visual C++ Redistributable install needed.
-Unless the installer was built with the model bundled in, download a model on
-first run (Settings → **Download models**).
+Four installers are produced, one per compute backend — pick the one matching
+your hardware:
+
+| Installer | Backends |
+|---|---|
+| `voiceTyper-<version>-cpu-setup.exe`    | CPU only |
+| `voiceTyper-<version>-vulkan-setup.exe` | CPU + Vulkan  (needs a Vulkan driver) |
+| `voiceTyper-<version>-cuda-setup.exe`   | CPU + CUDA    (needs an NVIDIA GPU) |
+| `voiceTyper-<version>-all-setup.exe`    | CPU + Vulkan + CUDA (universal) |
+
+Each bundles the full self-contained runtime — the executable, all Qt DLLs and
+plugins, the MSVC runtime, and the backend DLLs it actually uses (CUDA cuBLAS /
+Vulkan loader) — and creates Start Menu / optional Desktop shortcuts. No Visual
+C++ Redistributable install needed. The variants share one install dir, so
+installing one replaces another (pick a single build). The `all` installer ships
+every backend's runtime DLLs, so — unlike the Linux packages — it starts even
+where CUDA isn't installed and falls back to the best available backend at
+runtime. Unless the installer was built with the model bundled in, download a
+model on first run (Settings → **Download models**).
 
 ---
 
@@ -292,7 +305,8 @@ git clone <this-repo> voiceTyper; cd voiceTyper
 
 The script initializes the MSVC environment itself (no Developer prompt needed)
 and runs `windeployqt` so the folder is self-contained. Add `-Installer`
-(optionally `-IncludeModel`) to package a setup `.exe` with Inno Setup.
+(optionally `-IncludeModel`) to package the four backend setup `.exe`s (CPU /
+Vulkan / CUDA / All) with Inno Setup.
 
 ### Package Linux `.deb`s
 

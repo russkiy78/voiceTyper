@@ -74,13 +74,24 @@
     Extra args passed through to CMake configure (e.g. -DVOICETYPER_WITH_CUDA=OFF).
 
 .PARAMETER Installer
-    After building, package a Windows installer (.exe) with Inno Setup. The
-    installer bundles the full self-contained runtime - the executable, all Qt
-    DLLs and plugins, the MSVC runtime, and the GPU backend DLLs (CUDA cuBLAS /
-    Vulkan loader) - staged via windeployqt into <BuildDir>\dist. The application
-    icon (built from the voicetyper_*x*.png sources) is embedded in the .exe and
-    used for the installer and Start Menu / Desktop shortcuts. If Inno Setup's
-    ISCC.exe isn't found it is installed automatically via winget.
+    After building, package Windows installers (.exe) with Inno Setup. FOUR
+    installers are produced, one per GPU-backend combination:
+        voiceTyper-<ver>-cpu-setup.exe      CPU only
+        voiceTyper-<ver>-vulkan-setup.exe   CPU + Vulkan
+        voiceTyper-<ver>-cuda-setup.exe     CPU + CUDA
+        voiceTyper-<ver>-all-setup.exe      CPU + Vulkan + CUDA (universal)
+    Each variant is configured and built in its own directory (<BuildDir>-cpu,
+    <BuildDir>-vulkan, <BuildDir>-cuda, <BuildDir>-all) so their CMake caches -
+    which bake in the GGML_CUDA / GGML_VULKAN choice - don't collide. The full
+    self-contained runtime (the executable, all Qt DLLs and plugins, the MSVC
+    runtime, and only the backend DLLs that variant uses - CUDA cuBLAS / Vulkan
+    loader) is staged via windeployqt into <that dir>\dist, then compiled into a
+    setup .exe written to <BuildDir>. A variant whose toolchain is absent on the
+    build host (no CUDA toolkit / no Vulkan SDK) is skipped with a warning, since
+    CMake silently degrades a missing backend to CPU. The application icon (built
+    from the voicetyper_*x*.png sources) is embedded in the .exe and used for the
+    installer and Start Menu / Desktop shortcuts. If Inno Setup's ISCC.exe isn't
+    found it is installed automatically via winget.
 
 .PARAMETER IncludeModel
     With -Installer, also bundle the speech models (models\ggml-*.bin) into the
@@ -95,7 +106,7 @@
     .\scripts\build-windows.ps1
     .\scripts\build-windows.ps1 -QtPrefix "C:\Qt\6.11.1\msvc2022_64"
     .\scripts\build-windows.ps1 -BuildType Debug -Clean
-    .\scripts\build-windows.ps1 -Installer
+    .\scripts\build-windows.ps1 -Installer            # 4 installers: CPU / Vulkan / CUDA / All
     .\scripts\build-windows.ps1 -Installer -IncludeModel
 #>
 param(
@@ -367,11 +378,6 @@ if ([string]::IsNullOrWhiteSpace($QtPrefix) -or -not (Test-Path $QtPrefix)) {
 }
 Write-Host "Using Qt kit: $QtPrefix"
 
-if ($Clean -and (Test-Path $BuildPath)) {
-    Write-Host "Cleaning $BuildPath"
-    Remove-Item -Recurse -Force $BuildPath
-}
-
 $withWhisper = if ($NoWhisper) { "OFF" } else { "ON" }
 
 # Bring the MSVC toolchain (cl.exe, Ninja, link.exe) onto PATH unless we're
@@ -440,71 +446,30 @@ if ($haveVulkan) {
     Write-Host "Using Vulkan SDK: $env:VULKAN_SDK"
 }
 
-# Ninja is a single-config generator, so the build type is fixed at configure
-# time via CMAKE_BUILD_TYPE (there is no per-build --config selection).
-$configureArgs = @(
-    "-S", $Root,
-    "-B", $BuildPath,
-    "-G", "Ninja",
-    "-DCMAKE_BUILD_TYPE=$BuildType",
-    "-DCMAKE_PREFIX_PATH=$QtPrefix",
-    "-DVOICETYPER_WITH_WHISPER=$withWhisper"
-)
-if ($cudaCompiler) {
-    $configureArgs += "-DCMAKE_CUDA_COMPILER=$cudaCompiler"
-    $configureArgs += "-DCMAKE_CUDA_ARCHITECTURES=$cudaArchResolved"
-} else {
-    $configureArgs += "-DVOICETYPER_WITH_CUDA=OFF"
-}
-if (-not $haveVulkan) {
-    $configureArgs += "-DVOICETYPER_WITH_VULKAN=OFF"
-}
-$configureArgs += $ExtraCmakeArgs
-
-# Generate the embedded app icon before configure so CMake compiles it into the
-# .exe (see the resources\voicetyper.rc block in CMakeLists.txt).
+# Generate the embedded app icon once, before any configure, so CMake compiles
+# it into the .exe (see the resources\voicetyper.rc block in CMakeLists.txt).
 $icoPath = New-AppIcon $Root
 
-Write-Host "==> Configuring (whisper=$withWhisper)"
-Invoke-Tool "cmake" $configureArgs
-
-Write-Host "==> Building $BuildType"
-Invoke-Tool "cmake" @("--build", $BuildPath)
-
-# Locate the produced exe. Ninja (single-config) emits <BuildDir>\voiceTyper.exe;
-# the second candidate covers a multi-config generator if one is forced in via
-# -ExtraCmakeArgs.
-$exeCandidates = @(
-    (Join-Path $BuildPath "voiceTyper.exe"),
-    (Join-Path $BuildPath (Join-Path $BuildType "voiceTyper.exe"))
-)
-$exe = $exeCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-if (-not $exe) {
-    throw "Build reported success but executable not found (looked in: $($exeCandidates -join '; '))"
-}
-
 $windeployqt = Join-Path $QtPrefix "bin\windeployqt.exe"
-if (-not $SkipDeploy) {
-    if (-not (Test-Path $windeployqt)) {
-        throw "windeployqt not found at $windeployqt (use -SkipDeploy to skip Qt deployment)."
-    }
-    # The .exe statically links ggml/whisper, but the CUDA and Vulkan backends
-    # still pull in shared runtime DLLs that windeployqt doesn't know about;
-    # Invoke-RuntimeDeploy copies those next to the .exe too, keeping the folder
-    # self-contained on machines that lack the CUDA toolkit / Vulkan SDK.
-    Invoke-RuntimeDeploy -TargetExe $exe -Windeployqt $windeployqt -BuildType $BuildType `
-        -CudaCompiler $cudaCompiler -HaveVulkan ([bool]$haveVulkan) -VulkanSdk $env:VULKAN_SDK
-}
-
-Write-Host ""
-Write-Host "Build complete."
-Write-Host "Executable: $exe"
 
 # ----------------------------------------------------------------------------
-# Optional: package a Windows installer with Inno Setup. The whole runtime is
-# staged into <BuildDir>\dist (a clean tree, separate from CMake's build junk)
-# via a fresh windeployqt run, then ISCC compiles it into a single setup .exe.
+# Decide what to build.
+#
+#   * Without -Installer: a single dev build into $BuildPath using whatever GPU
+#     backends this host's toolchains support (the historical behaviour).
+#   * With -Installer: four RELEASE builds, one per backend combination, each
+#     packaged into its own installer -
+#         CPU only | CPU+Vulkan | CPU+CUDA | All (CPU+Vulkan+CUDA)
+#     Each variant gets its own build dir ($BuildPath-cpu / -vulkan / -cuda /
+#     -all) so their CMake caches (which bake in GGML_CUDA / GGML_VULKAN) don't
+#     collide, and all four setup .exes are written side by side into $BuildPath.
+#
+# A CUDA / Vulkan variant can only be built where that toolchain is present;
+# since CMake silently degrades a missing backend to CPU (cmake\WhisperCpp.cmake),
+# we must gate here rather than ship a "cuda" installer that is secretly CPU.
 # ----------------------------------------------------------------------------
+$haveCuda = [bool]$cudaCompiler
+
 if ($Installer) {
     if ([string]::IsNullOrWhiteSpace($AppVersion)) {
         $cml = Get-Content (Join-Path $Root "CMakeLists.txt") -Raw
@@ -514,11 +479,152 @@ if ($Installer) {
             "0.0.0"
         }
     }
-    Write-Host ""
-    Write-Host "==> Packaging installer (version $AppVersion)"
 
-    # Stage a clean, self-contained runtime tree.
-    $stage = Join-Path $BuildPath "dist"
+    $variants = @(
+        [pscustomobject]@{ Name = "cpu";    Label = "CPU only";            Cuda = $false; Vulkan = $false }
+        [pscustomobject]@{ Name = "vulkan"; Label = "CPU + Vulkan";        Cuda = $false; Vulkan = $true  }
+        [pscustomobject]@{ Name = "cuda";   Label = "CPU + CUDA";          Cuda = $true;  Vulkan = $false }
+        [pscustomobject]@{ Name = "all";    Label = "CPU + Vulkan + CUDA"; Cuda = $true;  Vulkan = $true  }
+    )
+
+    $jobs = @()
+    $skipped = @()
+    foreach ($v in $variants) {
+        if ($v.Cuda -and -not $haveCuda) {
+            $skipped += "$($v.Label) - CUDA toolkit (nvcc) not found on this build host"
+            Write-Warning "Skipping '$($v.Label)' installer: no CUDA toolkit (nvcc) on this build host."
+            continue
+        }
+        if ($v.Vulkan -and -not $haveVulkan) {
+            $skipped += "$($v.Label) - Vulkan SDK (glslc) not found on this build host"
+            Write-Warning "Skipping '$($v.Label)' installer: no Vulkan SDK (glslc) on this build host."
+            continue
+        }
+        $jobs += [pscustomobject]@{
+            Name      = $v.Name
+            Label     = $v.Label
+            Cuda      = $v.Cuda
+            Vulkan    = $v.Vulkan
+            BuildPath = "$BuildPath-$($v.Name)"
+            Package   = $true
+        }
+    }
+
+    # $BuildPath itself isn't a build dir in installer mode (each variant builds
+    # into $BuildPath-<name>); ensure it exists to collect the setup .exes.
+    if (-not (Test-Path $BuildPath)) { New-Item -ItemType Directory -Path $BuildPath | Out-Null }
+
+    # Resolve ISCC once up front (may trigger a one-time winget install) rather
+    # than re-probing per variant.
+    $iscc = Get-ISCC
+} else {
+    $jobs = @(
+        [pscustomobject]@{
+            Name      = "dev"
+            Label     = "dev build"
+            Cuda      = $haveCuda
+            Vulkan    = [bool]$haveVulkan
+            BuildPath = $BuildPath
+            Package   = $false
+        }
+    )
+}
+
+$produced = @()
+
+foreach ($job in $jobs) {
+    $jobBuildPath = $job.BuildPath
+
+    if ($job.Package) {
+        Write-Host ""
+        Write-Host "############################################################"
+        Write-Host "## Variant: $($job.Label)  ->  $jobBuildPath"
+        Write-Host "############################################################"
+    }
+
+    if ($Clean -and (Test-Path $jobBuildPath)) {
+        Write-Host "Cleaning $jobBuildPath"
+        Remove-Item -Recurse -Force $jobBuildPath
+    }
+
+    # Ninja is a single-config generator, so the build type is fixed at configure
+    # time via CMAKE_BUILD_TYPE (there is no per-build --config selection). The
+    # GPU backends are pinned ON/OFF per variant; the explicit OFF is what makes a
+    # "CPU only" / "CPU+Vulkan" build exclude CUDA even on a host that has the
+    # CUDA toolkit (and likewise for Vulkan).
+    $configureArgs = @(
+        "-S", $Root,
+        "-B", $jobBuildPath,
+        "-G", "Ninja",
+        "-DCMAKE_BUILD_TYPE=$BuildType",
+        "-DCMAKE_PREFIX_PATH=$QtPrefix",
+        "-DVOICETYPER_WITH_WHISPER=$withWhisper"
+    )
+    if ($job.Cuda) {
+        $configureArgs += "-DVOICETYPER_WITH_CUDA=ON"
+        $configureArgs += "-DCMAKE_CUDA_COMPILER=$cudaCompiler"
+        $configureArgs += "-DCMAKE_CUDA_ARCHITECTURES=$cudaArchResolved"
+    } else {
+        $configureArgs += "-DVOICETYPER_WITH_CUDA=OFF"
+    }
+    if ($job.Vulkan) {
+        $configureArgs += "-DVOICETYPER_WITH_VULKAN=ON"
+    } else {
+        $configureArgs += "-DVOICETYPER_WITH_VULKAN=OFF"
+    }
+    $configureArgs += $ExtraCmakeArgs
+
+    Write-Host "==> Configuring $($job.Label) (whisper=$withWhisper, cuda=$($job.Cuda), vulkan=$($job.Vulkan))"
+    Invoke-Tool "cmake" $configureArgs
+
+    Write-Host "==> Building $BuildType"
+    Invoke-Tool "cmake" @("--build", $jobBuildPath)
+
+    # Locate the produced exe. Ninja (single-config) emits <BuildDir>\voiceTyper.exe;
+    # the second candidate covers a multi-config generator if one is forced in via
+    # -ExtraCmakeArgs.
+    $exeCandidates = @(
+        (Join-Path $jobBuildPath "voiceTyper.exe"),
+        (Join-Path $jobBuildPath (Join-Path $BuildType "voiceTyper.exe"))
+    )
+    $exe = $exeCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if (-not $exe) {
+        throw "Build reported success but executable not found (looked in: $($exeCandidates -join '; '))"
+    }
+
+    if (-not $SkipDeploy) {
+        if (-not (Test-Path $windeployqt)) {
+            throw "windeployqt not found at $windeployqt (use -SkipDeploy to skip Qt deployment)."
+        }
+        # The .exe statically links ggml/whisper, but the CUDA and Vulkan backends
+        # still pull in shared runtime DLLs that windeployqt doesn't know about;
+        # Invoke-RuntimeDeploy copies those next to the .exe too, keeping the folder
+        # self-contained on machines that lack the CUDA toolkit / Vulkan SDK. Only
+        # the backends this variant was actually built with get their DLLs bundled.
+        Invoke-RuntimeDeploy -TargetExe $exe -Windeployqt $windeployqt -BuildType $BuildType `
+            -CudaCompiler $(if ($job.Cuda) { $cudaCompiler } else { $null }) `
+            -HaveVulkan ([bool]$job.Vulkan) -VulkanSdk $env:VULKAN_SDK
+    }
+
+    if (-not $job.Package) {
+        Write-Host ""
+        Write-Host "Build complete."
+        Write-Host "Executable: $exe"
+        continue
+    }
+
+    # ------------------------------------------------------------------------
+    # Package this variant with Inno Setup. The whole runtime is staged into
+    # <variant build dir>\dist (a clean tree, separate from CMake's build junk)
+    # via a fresh windeployqt run, then ISCC compiles it into a setup .exe named
+    # voiceTyper-<version>-<variant>-setup.exe in $BuildPath. All four variants
+    # share the same AppName / install dir, so installing one replaces another -
+    # the user picks the single build matching their hardware.
+    # ------------------------------------------------------------------------
+    Write-Host ""
+    Write-Host "==> Packaging $($job.Label) installer (version $AppVersion)"
+
+    $stage = Join-Path $jobBuildPath "dist"
     if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
     New-Item -ItemType Directory -Path $stage | Out-Null
 
@@ -526,7 +632,8 @@ if ($Installer) {
     Copy-Item (Join-Path $Root "config\commands.default.json") -Destination $stage -Force
     $stageExe = Join-Path $stage "voiceTyper.exe"
     Invoke-RuntimeDeploy -TargetExe $stageExe -Windeployqt $windeployqt -BuildType $BuildType `
-        -CudaCompiler $cudaCompiler -HaveVulkan ([bool]$haveVulkan) -VulkanSdk $env:VULKAN_SDK
+        -CudaCompiler $(if ($job.Cuda) { $cudaCompiler } else { $null }) `
+        -HaveVulkan ([bool]$job.Vulkan) -VulkanSdk $env:VULKAN_SDK
 
     if ($icoPath -and (Test-Path $icoPath)) {
         Copy-Item $icoPath -Destination (Join-Path $stage "voicetyper.ico") -Force
@@ -547,7 +654,10 @@ if ($Installer) {
     }
 
     # Build the Inno Setup script. {app}, {autopf}, etc. are Inno constants, not
-    # PowerShell - they pass through this here-string untouched (no '$').
+    # PowerShell - they pass through this here-string untouched (no '$'). Only the
+    # output filename carries the backend variant; AppName / install dir stay
+    # identical across variants so they cleanly replace one another.
+    $outputBase = "voiceTyper-$AppVersion-$($job.Name)-setup"
     $setupIconLine = if ($icoPath -and (Test-Path $icoPath)) { "SetupIconFile=$icoPath" } else { "" }
     $iss = @"
 [Setup]
@@ -558,7 +668,7 @@ DefaultDirName={autopf}\voiceTyper
 DefaultGroupName=voiceTyper
 DisableProgramGroupPage=yes
 OutputDir=$BuildPath
-OutputBaseFilename=voiceTyper-$AppVersion-setup
+OutputBaseFilename=$outputBase
 $setupIconLine
 UninstallDisplayIcon={app}\voiceTyper.exe
 Compression=lzma2
@@ -580,19 +690,32 @@ Name: "{autodesktop}\voiceTyper"; Filename: "{app}\voiceTyper.exe"; Tasks: deskt
 [Run]
 Filename: "{app}\voiceTyper.exe"; Description: "Launch voiceTyper"; Flags: nowait postinstall skipifsilent
 "@
-    $issPath = Join-Path $BuildPath "voiceTyper.iss"
+    $issPath = Join-Path $BuildPath "voiceTyper-$($job.Name).iss"
     Set-Content -Path $issPath -Value $iss -Encoding UTF8
 
-    $iscc = Get-ISCC
     Write-Host "==> Compiling installer with $iscc"
     Invoke-Tool $iscc @($issPath)
 
-    $setupExe = Join-Path $BuildPath "voiceTyper-$AppVersion-setup.exe"
-    Write-Host ""
+    $setupExe = Join-Path $BuildPath "$outputBase.exe"
     if (Test-Path $setupExe) {
         Write-Host "Installer: $setupExe"
+        $produced += [pscustomobject]@{ Label = $job.Label; Path = $setupExe }
     } else {
         Write-Warning "ISCC reported success but installer not found at $setupExe."
+    }
+}
+
+if ($Installer) {
+    Write-Host ""
+    Write-Host "============================================================"
+    Write-Host "Installers produced ($($produced.Count)):"
+    foreach ($p in $produced) {
+        Write-Host ("  {0,-20} {1}" -f $p.Label, $p.Path)
+    }
+    if ($skipped) {
+        Write-Host ""
+        Write-Host "Variants skipped (toolchain missing on this build host):"
+        foreach ($s in $skipped) { Write-Host "  - $s" }
     }
 }
 
