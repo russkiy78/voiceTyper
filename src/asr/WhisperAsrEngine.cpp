@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <fstream>
+#include <mutex>
 #include <set>
 #include <string>
 #include <thread>
@@ -126,7 +127,48 @@ whisper_context* initWhisperContext(const std::string& modelPath, bool useGpu,
     }
 }
 
+// Forwards one ggml/whisper log line into the Qt logging system. Trailing
+// newlines are stripped so FileLogging doesn't double them. ERROR/WARN land in
+// the default (info-level) log; INFO/DEBUG are demoted to qCDebug so the chatty
+// per-tensor backend-load output stays off unless the user opts in via
+// QT_LOGGING_RULES="voicetyper.asr.debug=true".
+void ggmlLogToQt(ggml_log_level level, const char* text, void* /*user*/) {
+    if (!text || !*text)
+        return;
+    QString msg = QString::fromUtf8(text);
+    while (msg.endsWith('\n') || msg.endsWith('\r'))
+        msg.chop(1);
+    if (msg.isEmpty())
+        return;
+    switch (level) {
+    case GGML_LOG_LEVEL_ERROR:
+    case GGML_LOG_LEVEL_WARN:
+        qCWarning(vtAsr).noquote() << "[ggml]" << msg;
+        break;
+    default:
+        qCDebug(vtAsr).noquote() << "[ggml]" << msg;
+        break;
+    }
+}
+
+// Last line before abort() tears the process down (e.g. a CUDA GGML_ABORT).
+// Logged at warning level so it survives the default filter; FileLogging
+// flushes per line, so it reaches disk before the process dies.
+void ggmlAbortToQt(const char* message) {
+    qCWarning(vtAsr).noquote()
+        << "[ggml abort]" << (message ? QString::fromUtf8(message) : QString());
+}
+
 } // namespace
+
+void WhisperAsrEngine::installDiagnostics() {
+    static std::once_flag once;
+    std::call_once(once, [] {
+        ggml_log_set(ggmlLogToQt, nullptr);
+        whisper_log_set(ggmlLogToQt, nullptr);
+        ggml_set_abort_callback(ggmlAbortToQt);
+    });
+}
 
 WhisperAsrEngine::WhisperAsrEngine(const std::string& modelPath, bool useGpu,
                                    int gpuDevice, bool flashAttn,
@@ -165,6 +207,11 @@ WhisperAsrEngine::WhisperAsrEngine(const std::string& modelPath, bool useGpu,
     else
         qCInfo(vtAsr) << "Loaded whisper model:"
                       << QString::fromStdString(modelPath);
+}
+
+void WhisperAsrEngine::setOnFirstGpuInferenceDone(std::function<void()> cb) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    onFirstGpuInferenceDone_ = std::move(cb);
 }
 
 WhisperAsrEngine::~WhisperAsrEngine() {
@@ -266,6 +313,14 @@ TranscriptionResult WhisperAsrEngine::transcribe(
 
     const int rc = whisper_full(ctx_, params, audio.samples.data(),
                                 static_cast<int>(audio.samples.size()));
+
+    // whisper_full() returned — the GPU didn't abort on this call. Clear the
+    // first-inference crash breadcrumb (set by AppController after GPU init).
+    if (!firstGpuInferenceDone_ && onFirstGpuInferenceDone_) {
+        firstGpuInferenceDone_ = true;
+        onFirstGpuInferenceDone_();
+    }
+
     if (rc != 0) {
         const bool aborted = options.abortFlag &&
                              options.abortFlag->load(std::memory_order_relaxed);

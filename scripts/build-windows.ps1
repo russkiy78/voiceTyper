@@ -64,11 +64,17 @@
 
 .PARAMETER CudaArch
     CUDA compute architecture(s) to compile for, e.g. "89" (RTX 40xx) or a list
-    like "86;89;90". Default "auto" detects the build host's GPU via nvidia-smi.
-    This is passed as CMAKE_CUDA_ARCHITECTURES; setting it explicitly avoids
-    ggml-cuda's default "native" probe, which silently produces an EMPTY arch (a
-    GPU-less, non-functional CUDA backend) whenever the GPU isn't visible to the
-    build process.
+    like "86;89;90".
+
+    Default "" (empty) defers to the portable Maxwell..Hopper baseline pinned in
+    cmake/WhisperCpp.cmake, which covers every consumer GPU back to Pascal
+    (GTX 10xx) — use this for RELEASE builds so the CUDA backend runs on any
+    client GPU, not just the build host's.
+
+    "auto" instead detects ONLY the build host's GPU via nvidia-smi (fast,
+    single-arch — handy for local dev, but a release built this way crashes with
+    "no kernel image available" on any other GPU arch). Pascal (sm_50/61/70)
+    needs a CUDA <= 12.x toolkit; CUDA 13 dropped it.
 
 .PARAMETER ExtraCmakeArgs
     Extra args passed through to CMake configure (e.g. -DVOICETYPER_WITH_CUDA=OFF).
@@ -117,7 +123,7 @@ param(
     [switch]$NoWhisper,
     [switch]$SkipDeploy,
     [switch]$SkipVsDevEnv,
-    [string]$CudaArch = "auto",
+    [string]$CudaArch = "",
     [switch]$Clean,
     [string[]]$ExtraCmakeArgs = @(),
     [switch]$Installer,
@@ -401,10 +407,14 @@ if ($nvcc) {
     $cudaCompiler = $nvcc.Source
     Write-Host "Using CUDA toolkit: $(Split-Path (Split-Path $cudaCompiler))"
 
-    # Resolve CMAKE_CUDA_ARCHITECTURES. ggml-cuda otherwise defaults to "native",
-    # whose device probe yields an EMPTY arch when no GPU is visible to the build
-    # process - producing a CUDA backend that compiles but enumerates zero devices
-    # at runtime (the "CUDA missing from the backend list" symptom).
+    # Resolve CMAKE_CUDA_ARCHITECTURES.
+    #   ""     => defer to the portable baseline pinned in cmake/WhisperCpp.cmake
+    #            (Maxwell..Hopper; the right choice for a release). Leave
+    #            $cudaArchResolved empty so we DON'T pass -DCMAKE_CUDA_ARCHITECTURES
+    #            and the CMake pin takes effect.
+    #   "auto" => detect ONLY the build host's GPU (fast single-arch dev build;
+    #            NOT portable — a release built this way crashes elsewhere).
+    #   else   => an explicit list, passed through verbatim.
     $cudaArchResolved = $CudaArch
     if ($CudaArch -eq "auto") {
         $smi = Get-Command nvidia-smi -ErrorAction SilentlyContinue
@@ -419,13 +429,16 @@ if ($nvcc) {
             }
         }
         if ($cudaArchResolved -eq "auto") {
-            # nvidia-smi unavailable: build a fat binary covering Turing..Blackwell
-            # so the result still runs on the target GPU.
-            $cudaArchResolved = "75;80;86;89;90"
-            Write-Host "CUDA arch: GPU not detected, building for $cudaArchResolved"
+            # nvidia-smi unavailable: fall back to the portable baseline (covers
+            # Pascal(61)..Hopper(90)) rather than a Turing+ list that would
+            # exclude older client GPUs.
+            $cudaArchResolved = "50-virtual;61-virtual;70-virtual;75-virtual;80-virtual;86-real;89-real;90-virtual"
+            Write-Host "CUDA arch: GPU not detected, building portable $cudaArchResolved"
         } else {
-            Write-Host "CUDA arch: $cudaArchResolved (detected)"
+            Write-Host "CUDA arch: $cudaArchResolved (detected — single arch, host only)"
         }
+    } elseif ([string]::IsNullOrWhiteSpace($CudaArch)) {
+        Write-Host "CUDA arch: deferring to portable baseline in WhisperCpp.cmake"
     } else {
         Write-Host "CUDA arch: $cudaArchResolved (requested)"
     }
@@ -563,7 +576,10 @@ foreach ($job in $jobs) {
     if ($job.Cuda) {
         $configureArgs += "-DVOICETYPER_WITH_CUDA=ON"
         $configureArgs += "-DCMAKE_CUDA_COMPILER=$cudaCompiler"
-        $configureArgs += "-DCMAKE_CUDA_ARCHITECTURES=$cudaArchResolved"
+        # Empty => don't set it, so the portable baseline in WhisperCpp.cmake wins.
+        if (-not [string]::IsNullOrWhiteSpace($cudaArchResolved)) {
+            $configureArgs += "-DCMAKE_CUDA_ARCHITECTURES=$cudaArchResolved"
+        }
     } else {
         $configureArgs += "-DVOICETYPER_WITH_CUDA=OFF"
     }

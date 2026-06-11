@@ -77,6 +77,48 @@ function(voicetyper_add_whisper)
         if(CMAKE_CUDA_COMPILER)
             set(GGML_CUDA ON CACHE BOOL "" FORCE)
             message(STATUS "voiceTyper: CUDA backend ENABLED (nvcc: ${CMAKE_CUDA_COMPILER})")
+
+            # Pin a portable GPU arch baseline — the GPU analogue of the AVX2 CPU
+            # pin above. ggml-cuda's default arch list depends on the toolkit
+            # version AND on GGML_NATIVE; worse, a host-arch probe (CMake's
+            # "native", or our build-windows.ps1 nvidia-smi auto-detect) bakes in
+            # ONLY the build box's GPU arch. The release then has no kernel image
+            # for any other arch: model load + Vulkan still work (allocations are
+            # arch-agnostic), but the first whisper_full() kernel launch aborts
+            # with "no kernel image available for execution on the device" ->
+            # GGML_ABORT. That is the "crashes on a 1080 Ti (Pascal) under CUDA,
+            # fine under Vulkan, dies on the 2nd second of recording" report.
+            #
+            # The list is toolkit-version-aware so a fixed pin never breaks
+            # configure: Pascal/Maxwell/Volta (sm_50/61/70) ONLY compile on CUDA
+            # <= 12.x — CUDA 13 removed them, so emitting 61-virtual there is a
+            # hard configure error. Blackwell (sm_120) needs CUDA >= 12.8. Net:
+            #   - CUDA 12.8 / 12.9  -> Maxwell..Blackwell (widest; keeps GTX 10xx)
+            #   - CUDA 12.0 .. 12.7 -> Maxwell..Hopper
+            #   - CUDA 13.x         -> Turing..Blackwell (NO Pascal; build the CUDA
+            #                          release with CUDA 12.x to keep GTX 10xx)
+            # -virtual ships PTX (JIT-forward onto the client GPU on first run);
+            # -real ships SASS for the common consumer cards so they skip the JIT.
+            # Only set it when the caller hasn't (build-windows.ps1 may override).
+            if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+                find_package(CUDAToolkit QUIET)
+                set(_vt_cuda_archs "")
+                if(CUDAToolkit_VERSION AND CUDAToolkit_VERSION VERSION_LESS "13")
+                    list(APPEND _vt_cuda_archs 50-virtual 61-virtual 70-virtual)
+                endif()
+                list(APPEND _vt_cuda_archs 75-virtual 80-virtual 86-real 89-real 90-virtual)
+                if(CUDAToolkit_VERSION AND CUDAToolkit_VERSION VERSION_GREATER_EQUAL "12.8")
+                    list(APPEND _vt_cuda_archs 120a-real)
+                endif()
+                set(CMAKE_CUDA_ARCHITECTURES "${_vt_cuda_archs}"
+                    CACHE STRING "Portable CUDA arch baseline" FORCE)
+                message(STATUS "voiceTyper: pinned CMAKE_CUDA_ARCHITECTURES=${CMAKE_CUDA_ARCHITECTURES} (toolkit ${CUDAToolkit_VERSION})")
+                if(NOT CUDAToolkit_VERSION VERSION_LESS "13")
+                    message(STATUS "voiceTyper: NOTE — CUDA ${CUDAToolkit_VERSION} cannot target Pascal (GTX 10xx); use a CUDA 12.x toolkit if you need it.")
+                endif()
+            else()
+                message(STATUS "voiceTyper: CMAKE_CUDA_ARCHITECTURES preset to ${CMAKE_CUDA_ARCHITECTURES} (caller override)")
+            endif()
         else()
             set(GGML_CUDA OFF CACHE BOOL "" FORCE)
             message(STATUS "voiceTyper: CUDA backend disabled — no CUDA toolkit found")
