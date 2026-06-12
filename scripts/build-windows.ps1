@@ -68,11 +68,11 @@
 
     Default "" (empty) defers to the portable Maxwell..Hopper baseline pinned in
     cmake/WhisperCpp.cmake, which covers every consumer GPU back to Pascal
-    (GTX 10xx) — use this for RELEASE builds so the CUDA backend runs on any
+    (GTX 10xx) - use this for RELEASE builds so the CUDA backend runs on any
     client GPU, not just the build host's.
 
     "auto" instead detects ONLY the build host's GPU via nvidia-smi (fast,
-    single-arch — handy for local dev, but a release built this way crashes with
+    single-arch - handy for local dev, but a release built this way crashes with
     "no kernel image available" on any other GPU arch). Pascal (sm_50/61/70)
     needs a CUDA <= 12.x toolkit; CUDA 13 dropped it.
 
@@ -413,7 +413,7 @@ if ($nvcc) {
     #            $cudaArchResolved empty so we DON'T pass -DCMAKE_CUDA_ARCHITECTURES
     #            and the CMake pin takes effect.
     #   "auto" => detect ONLY the build host's GPU (fast single-arch dev build;
-    #            NOT portable — a release built this way crashes elsewhere).
+    #            NOT portable - a release built this way crashes elsewhere).
     #   else   => an explicit list, passed through verbatim.
     $cudaArchResolved = $CudaArch
     if ($CudaArch -eq "auto") {
@@ -435,7 +435,7 @@ if ($nvcc) {
             $cudaArchResolved = "50-virtual;61-virtual;70-virtual;75-virtual;80-virtual;86-real;89-real;90-virtual"
             Write-Host "CUDA arch: GPU not detected, building portable $cudaArchResolved"
         } else {
-            Write-Host "CUDA arch: $cudaArchResolved (detected — single arch, host only)"
+            Write-Host "CUDA arch: $cudaArchResolved (detected - single arch, host only)"
         }
     } elseif ([string]::IsNullOrWhiteSpace($CudaArch)) {
         Write-Host "CUDA arch: deferring to portable baseline in WhisperCpp.cmake"
