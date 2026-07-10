@@ -86,6 +86,12 @@ private:
     QString pendingNotice_;
 
     bool processing_ = false;
+
+    // buildAsrEngine() runs once at startup and again on every settings-apply
+    // that changes the model/backend. The on-disk GPU crash breadcrumb may be
+    // read as a crash only on the first (fresh-process) build; on an in-process
+    // rebuild it's our own still-armed first-inference guard, not a crash.
+    bool asrEngineBuiltOnce_ = false;
 };
 
 } // namespace vt

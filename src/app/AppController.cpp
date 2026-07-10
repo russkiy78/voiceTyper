@@ -135,7 +135,17 @@ void AppController::buildAsrEngine() {
     // first successful inference returns (see re-arm block below). A GPU
     // breadcrumb still set next launch means something in that window killed the
     // app: retry on CPU, which may run the model even when the GPU can't.
-    if (settings_->loadAttemptPath() == lastModelPath_ &&
+    //
+    // Honour that ONLY on the first build of the process. buildAsrEngine() also
+    // runs from onSettingsApplied() when the model/backend changes — in-process,
+    // with the app demonstrably alive. There a still-armed breadcrumb is our own
+    // first-inference guard (GPU loaded fine, user just hasn't dictated yet), NOT
+    // a crash; treating it as one silently forced a healthy GPU down to CPU and
+    // overwrote the user's backend choice on the next settings-apply.
+    const bool freshProcess = !asrEngineBuiltOnce_;
+    asrEngineBuiltOnce_ = true;
+
+    if (freshProcess && settings_->loadAttemptPath() == lastModelPath_ &&
         settings_->loadAttemptWasGpu()) {
         settings_->clearLoadAttempt();
         qCWarning(vtAsr) << "Previous GPU load or first inference of"
@@ -148,8 +158,9 @@ void AppController::buildAsrEngine() {
                "voiceTyper switched to CPU. Re-enable it in Settings to try "
                "again.");
     } else if (!settings_->loadAttemptPath().isEmpty()) {
-        // Any other leftover breadcrumb — a crashed CPU load (just retried) or a
-        // stale one from a different model. Clear it and load normally.
+        // Not a crash to act on — a stale breadcrumb: our own first-inference
+        // guard on an in-process rebuild, a just-retried CPU load, or a leftover
+        // from a different model. Clear it and load the requested backend.
         settings_->clearLoadAttempt();
     }
 
