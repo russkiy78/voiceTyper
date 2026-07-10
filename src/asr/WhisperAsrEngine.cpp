@@ -167,6 +167,14 @@ void WhisperAsrEngine::installDiagnostics() {
         ggml_log_set(ggmlLogToQt, nullptr);
         whisper_log_set(ggmlLogToQt, nullptr);
         ggml_set_abort_callback(ggmlAbortToQt);
+#ifdef VT_CUDA_BUILD_ARCHES
+        // Compiled-in CUDA identity. The Pascal "no kernel image" abort is fixed
+        // at build time by this arch list, not by the client driver — so a crash
+        // report shows directly whether the release carries sm_61 (toolkit 12.x)
+        // or dropped it (toolkit 13.x). Logged before device enumeration runs.
+        qCInfo(vtAsr) << "CUDA build: toolkit" << VT_CUDA_BUILD_TOOLKIT
+                      << "— arches" << VT_CUDA_BUILD_ARCHES;
+#endif
     });
 }
 

@@ -119,6 +119,18 @@ function(voicetyper_add_whisper)
             else()
                 message(STATUS "voiceTyper: CMAKE_CUDA_ARCHITECTURES preset to ${CMAKE_CUDA_ARCHITECTURES} (caller override)")
             endif()
+
+            # Export the CUDA build identity to the app target so it lands in the
+            # client's log at startup (see WhisperAsrEngine::installDiagnostics).
+            # The Pascal "no kernel image" abort is decided by which arches are
+            # compiled in HERE, not by the client's driver — so logging the build
+            # toolkit + arch list is what lets a crash report tell "12.x (has
+            # sm_61) vs 13.x (dropped Pascal)" apart at a glance. find_package is
+            # repeated because the override branch above skips it.
+            find_package(CUDAToolkit QUIET)
+            string(REPLACE ";" "," _vt_cuda_archs_csv "${CMAKE_CUDA_ARCHITECTURES}")
+            set(VT_CUDA_BUILD_TOOLKIT "${CUDAToolkit_VERSION}" PARENT_SCOPE)
+            set(VT_CUDA_BUILD_ARCHES  "${_vt_cuda_archs_csv}" PARENT_SCOPE)
         else()
             set(GGML_CUDA OFF CACHE BOOL "" FORCE)
             message(STATUS "voiceTyper: CUDA backend disabled — no CUDA toolkit found")

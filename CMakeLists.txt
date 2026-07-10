@@ -156,6 +156,15 @@ if(VOICETYPER_WITH_WHISPER)
     target_compile_definitions(voiceTyper PRIVATE VOICETYPER_WITH_WHISPER=1)
 endif()
 
+# CUDA build identity (set by voicetyper_add_whisper() when the CUDA backend is
+# compiled in) so the running app can log which toolkit/arches the release was
+# built with — see WhisperAsrEngine::installDiagnostics.
+if(DEFINED VT_CUDA_BUILD_ARCHES)
+    target_compile_definitions(voiceTyper PRIVATE
+        VT_CUDA_BUILD_TOOLKIT="${VT_CUDA_BUILD_TOOLKIT}"
+        VT_CUDA_BUILD_ARCHES="${VT_CUDA_BUILD_ARCHES}")
+endif()
+
 # ----------------------------------------------------------------------------
 # Platform link dependencies
 # ----------------------------------------------------------------------------
