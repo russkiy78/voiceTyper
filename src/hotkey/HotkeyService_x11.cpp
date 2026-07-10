@@ -16,6 +16,7 @@
 #include <xcb/xcb.h>
 
 #include <X11/Xlib.h>
+#include <X11/XKBlib.h>
 #include <X11/keysym.h>
 
 namespace vt {
@@ -86,10 +87,19 @@ public:
     explicit X11HotkeyService(QObject* parent) : HotkeyService(parent) {
         if (auto* x11 = qApp->nativeInterface<QNativeInterface::QX11Application>())
             display_ = x11->display();
-        if (display_)
+        if (display_) {
+            // Without this, holding the hotkey past the key-repeat delay makes
+            // the server interleave synthetic KeyRelease/KeyPress pairs for
+            // every repeat tick, so there is no way to tell "still held" from
+            // "released and pressed again" by event type alone. Detectable
+            // autorepeat suppresses the synthetic releases: a genuine
+            // KeyRelease now only arrives when the key physically comes up,
+            // which nativeEventFilter below relies on via keyDown_.
+            XkbSetDetectableAutoRepeat(display_, True, nullptr);
             qApp->installNativeEventFilter(this);
-        else
+        } else {
             qCWarning(vtInput) << "X11 display unavailable; global hotkey disabled";
+        }
     }
 
     ~X11HotkeyService() override {
@@ -142,6 +152,7 @@ public:
         }
 
         registered_ = true;
+        keyDown_ = false;
         qCInfo(vtInput) << "Registered global hotkey" << sequence;
         return true;
     }
@@ -156,6 +167,7 @@ public:
         XSync(display_, False);
         XSetErrorHandler(prev);
         registered_ = false;
+        keyDown_ = false;
     }
 
     bool nativeEventFilter(const QByteArray& eventType, void* message,
@@ -164,12 +176,31 @@ public:
             return false;
 
         auto* ev = static_cast<xcb_generic_event_t*>(message);
-        if ((ev->response_type & ~0x80) != XCB_KEY_PRESS)
+        const uint8_t type = ev->response_type & ~0x80;
+        if (type != XCB_KEY_PRESS && type != XCB_KEY_RELEASE)
             return false;
 
         auto* ke = reinterpret_cast<xcb_key_press_event_t*>(ev);
+        if (ke->detail != keycode_)
+            return false;
+
+        if (type == XCB_KEY_RELEASE) {
+            keyDown_ = false;
+            return false;
+        }
+
+        // XGrabKey also delivers the key's own repeat presses while held; with
+        // detectable autorepeat those arrive as XCB_KEY_PRESS with no
+        // intervening release, so keyDown_ tells a genuine press (fire once)
+        // apart from a repeat tick (ignore) — otherwise holding the hotkey a
+        // little longer than the key-repeat delay toggles recording on and off
+        // repeatedly instead of once.
+        if (keyDown_)
+            return false;
+
         const unsigned relevant = ShiftMask | ControlMask | Mod1Mask | Mod4Mask;
-        if (ke->detail == keycode_ && (ke->state & relevant) == modMask_) {
+        if ((ke->state & relevant) == modMask_) {
+            keyDown_ = true;
             emit activated();
         }
         return false; // never consume; let other clients see it too
@@ -180,6 +211,7 @@ private:
     KeyCode keycode_ = 0;
     unsigned modMask_ = 0;
     bool registered_ = false;
+    bool keyDown_ = false;
 };
 
 } // namespace
