@@ -17,6 +17,10 @@
 #include "ui/ToastOverlay.h"
 #include "ui/TrayController.h"
 
+#ifdef Q_OS_MAC
+#include "ui/MacWindowUtils.h"
+#endif
+
 #include "asr/ComputeBackends.h"
 
 #ifdef VOICETYPER_WITH_WHISPER
@@ -303,6 +307,12 @@ void AppController::toggleRecording() {
 }
 
 void AppController::onRecordingStarted() {
+#ifdef Q_OS_MAC
+    // Snapshot whichever app the user was dictating into before showing the
+    // overlay below can shift macOS's active-app focus away from it; restored
+    // right before the paste keystroke in finishTranscription().
+    mac::rememberFrontmostApp();
+#endif
     if (tray_)
         tray_->setRecording(true);
     if (settings_->overlayEnabled() && overlay_) {
@@ -402,6 +412,13 @@ void AppController::finishTranscription(const QString& rawText) {
             tray_->showMessage(tr("voiceTyper"), tr("Nothing was recognized."));
         return;
     }
+
+#ifdef Q_OS_MAC
+    // Reactivate whatever app was frontmost when recording started, in case
+    // showing the overlay shifted focus away from it — the paste keystroke
+    // below needs that app to actually be frontmost to land correctly.
+    mac::restoreFrontmostApp();
+#endif
 
     qCInfo(vtApp) << "Pasting" << finalText.size() << "chars:" << finalText;
     paste_->pasteText(finalText);

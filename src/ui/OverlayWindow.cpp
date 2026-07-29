@@ -5,6 +5,10 @@
 #include <QPainterPath>
 #include <QScreen>
 
+#ifdef Q_OS_MAC
+#include "ui/MacWindowUtils.h"
+#endif
+
 namespace vt {
 
 namespace {
@@ -14,13 +18,29 @@ constexpr int kMargin = 24;
 } // namespace
 
 OverlayWindow::OverlayWindow(QWidget* parent) : QWidget(parent) {
-    setWindowFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint | Qt::Tool |
-                   Qt::WindowDoesNotAcceptFocus | Qt::BypassWindowManagerHint);
+    Qt::WindowFlags flags = Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint | Qt::Tool |
+                            Qt::WindowDoesNotAcceptFocus;
+#ifndef Q_OS_MAC
+    flags |= Qt::BypassWindowManagerHint;
+#else
+    // No Qt::BypassWindowManagerHint on macOS: it skips Cocoa's normal window
+    // ordering, which means WindowStaysOnTopHint only actually keeps this
+    // above other *voiceTyper* windows, not above whatever app the user is
+    // dictating into. The whole point of this overlay is to stay visible
+    // while a different app is focused, so it needs real WM-mediated
+    // ordering here. Left untouched on Windows/X11, where it was presumably
+    // already working as intended.
+#endif
+    setWindowFlags(flags);
     setAttribute(Qt::WA_TranslucentBackground);
     setAttribute(Qt::WA_ShowWithoutActivating);
     setAttribute(Qt::WA_TransparentForMouseEvents);
     setFocusPolicy(Qt::NoFocus);
     setFixedSize(kWidth, kHeight);
+
+#ifdef Q_OS_MAC
+    mac::preventPanelHideOnDeactivate(this);
+#endif
 
     pulseTimer_.setInterval(500);
     connect(&pulseTimer_, &QTimer::timeout, this, [this]() {

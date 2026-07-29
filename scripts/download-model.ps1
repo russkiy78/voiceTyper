@@ -6,11 +6,11 @@
     Recommended models (published at https://huggingface.co/ggerganov/whisper.cpp):
         small-q5_1            ~180 MB  (good size/quality tradeoff, multilingual)
         medium-q5_0           ~540 MB  (better quality)
-        large-v3-q5_0         ~1.1 GiB  (best quality)
+        large-v3-q5_0         ~1.1 GiB  (best quality, recommended target)
 
 .EXAMPLE
     .\scripts\download-model.ps1
-    .\scripts\download-model.ps1 large-v3-turbo-q5_0
+    .\scripts\download-model.ps1 large-v3-q5_0
 #>
 param(
     [string]$Model = "small-q5_1"

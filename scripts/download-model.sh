@@ -11,7 +11,7 @@
 # Recommended for the MVP:
 #   small-q5_1            ~180 MB  (good size/quality tradeoff, multilingual)
 #   medium-q5_0           ~540 MB  (better quality)
-#   large-v3-turbo-q5_0   ~570 MB  (best quality / speed, recommended target)
+#   large-v3-q5_0         ~1.1 GB  (best quality, recommended target)
 #
 set -euo pipefail
 

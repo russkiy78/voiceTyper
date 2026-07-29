@@ -193,10 +193,18 @@ QString SettingsStore::commandsConfigPath() const {
 }
 
 QString SettingsStore::bundledDefaultCommandsPath() const {
-    const QString next =
-        QDir(QCoreApplication::applicationDirPath()).filePath("commands.default.json");
+    // Checked in order: next to the binary (dev/Linux/Windows builds), then
+    // Contents/Resources/ (packaged macOS .app — codesign expects
+    // Contents/MacOS/ to hold only executables, so packaging places data
+    // files in Resources/ instead; see scripts/package-macos.sh).
+    const QDir appDir(QCoreApplication::applicationDirPath());
+    const QString next = appDir.filePath("commands.default.json");
     if (QFileInfo::exists(next))
         return next;
+    const QString resourcesNext =
+        appDir.filePath("../Resources/commands.default.json");
+    if (QFileInfo::exists(resourcesNext))
+        return resourcesNext;
     // Fallback to a source-tree relative path for dev runs.
     return QStringLiteral("config/commands.default.json");
 }
@@ -249,6 +257,10 @@ QString SettingsStore::autodetectModelPath() {
     QStringList searchDirs;
     searchDirs << QDir(QCoreApplication::applicationDirPath()).filePath("models")
                << QCoreApplication::applicationDirPath()
+               // Packaged macOS .app: models live in Contents/Resources/models
+               // (see bundledDefaultCommandsPath() for why not Contents/MacOS/).
+               << QDir(QCoreApplication::applicationDirPath())
+                      .filePath("../Resources/models")
                << QDir(QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation))
                       .filePath("models")
                << QStringLiteral("models");

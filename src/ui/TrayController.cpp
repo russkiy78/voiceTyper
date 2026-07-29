@@ -75,26 +75,37 @@ QIcon TrayController::makeIcon(bool recording, bool translate) const {
     QPainter p(&pm);
     p.setRenderHint(QPainter::Antialiasing, true);
 
-    const QColor body = recording ? QColor(231, 76, 60) : QColor(70, 130, 220);
-    p.setPen(Qt::NoPen);
-    p.setBrush(body);
+    // Near-white fill + solid black outline: the highest-contrast combo
+    // against light, dark, *and* colored backgrounds alike (a mid-tone fill
+    // color, tried first, still washed out against similarly-toned menu
+    // bars — white-on-black doesn't have that failure mode).
+    const QColor body = recording ? QColor(231, 76, 60) : QColor(245, 245, 245);
+    const QColor outlineColor(15, 15, 15);
 
-    // Mic capsule.
-    p.drawRoundedRect(QRectF(24, 10, 16, 28), 8, 8);
-    // Mic stand arc.
-    QPen pen(body);
-    pen.setWidth(4);
-    pen.setCapStyle(Qt::RoundCap);
-    p.setPen(pen);
-    p.setBrush(Qt::NoBrush);
-    p.drawArc(QRectF(18, 16, 28, 30), 200 * 16, 140 * 16);
-    // Stem + base.
-    p.drawLine(QPointF(32, 46), QPointF(32, 54));
-    p.drawLine(QPointF(24, 54), QPointF(40, 54));
+    // The glyph is drawn twice: once oversized in the outline color, then at
+    // normal size in the fill color on top.
+    auto drawGlyph = [&](const QColor& color, qreal grow) {
+        p.setPen(Qt::NoPen);
+        p.setBrush(color);
+        p.drawRoundedRect(QRectF(24, 10, 16, 28).adjusted(-grow, -grow, grow, grow),
+                           8 + grow, 8 + grow);
+
+        QPen pen(color);
+        pen.setWidthF(4 + 2 * grow);
+        pen.setCapStyle(Qt::RoundCap);
+        p.setPen(pen);
+        p.setBrush(Qt::NoBrush);
+        p.drawArc(QRectF(18, 16, 28, 30), 200 * 16, 140 * 16);
+        p.drawLine(QPointF(32, 46), QPointF(32, 54));
+        p.drawLine(QPointF(24, 54), QPointF(40, 54));
+    };
+
+    drawGlyph(outlineColor, 2);
+    drawGlyph(body, 0);
 
     if (translate) {
         const QRectF badge(8, 0, 56, 36);
-        p.setPen(Qt::NoPen);
+        p.setPen(QPen(outlineColor, 2));
         p.setBrush(QColor(34, 139, 34));
         p.drawRoundedRect(badge, 6, 6);
         p.setPen(Qt::white);

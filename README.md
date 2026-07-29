@@ -11,9 +11,10 @@ the active field. Speech recognition runs **entirely on your machine** via
 account, no telemetry. Your audio never leaves the device.
 
 - **Stack:** C++20 · Qt 6 · CMake · whisper.cpp `v1.8.6` (bundled, statically linked)
-- **Compute:** CPU, **Vulkan**, or **CUDA** — picked at runtime from one binary
-- **Platforms:** Ubuntu/Linux (X11; Wayland via a GNOME shortcut) and Windows.
-  macOS is architected for but not yet wired up (see [Platform notes](#platform-notes)).
+- **Compute:** CPU, **Vulkan**, **CUDA**, or **Metal** — picked at runtime from one binary
+- **Platforms:** Ubuntu/Linux (X11; Wayland via a GNOME shortcut), Windows, and
+  macOS (see [Platform notes](#platform-notes) — paste keystroke needs
+  Accessibility permission).
 
 <p align="center">
   <img src="docs/settings.png" alt="voiceTyper Settings window" width="480">
@@ -82,9 +83,10 @@ is chosen at runtime** — you don't need a separate build per machine (with one
 caveat for CUDA packaging, below).
 
 - **How selection works.** At startup the app enumerates every live compute
-  device (`ComputeBackends`): CPU is always present; a **Vulkan** or **CUDA**
-  entry appears only when *both* that backend was built in *and* a matching
-  GPU/driver is detected now. Pick one under **Settings → Compute backend**.
+  device (`ComputeBackends`): CPU is always present; a **Vulkan**, **CUDA**, or
+  **Metal** entry appears only when *both* that backend was built in *and* a
+  matching GPU/driver is detected now. Pick one under **Settings → Compute
+  backend**.
 - **Auto mode (default).** With no explicit choice the app prefers the first GPU
   and falls back to CPU. If a selected GPU backend turns out to be unavailable at
   runtime, it falls back to CPU rather than failing.
@@ -95,8 +97,12 @@ caveat for CUDA packaging, below).
   - *CUDA:* the NVIDIA driver (`libcuda.so.1`). The CUDA `.deb`/installer bundles
     the CUDA runtime libraries, so the toolkit itself is **not** required on the
     target.
-- **Build-host control.** Both backends auto-detect at configure time and can be
-  forced off with `-DVOICETYPER_WITH_VULKAN=OFF` / `-DVOICETYPER_WITH_CUDA=OFF`.
+  - *Metal (macOS):* nothing extra — it's part of the OS. whisper.cpp also picks
+    up Accelerate/BLAS on Apple automatically; both are compiled in and detected
+    with no configure flags.
+- **Build-host control.** Vulkan and CUDA auto-detect at configure time and can
+  be forced off with `-DVOICETYPER_WITH_VULKAN=OFF` / `-DVOICETYPER_WITH_CUDA=OFF`;
+  Metal follows whisper.cpp's own Apple default (`GGML_METAL`).
 
 ---
 
@@ -239,6 +245,18 @@ build scripts auto-detect it, or pass `-DCMAKE_PREFIX_PATH`. A distro Qt6
   hotkey/paste use the Win32 API directly — no extra system libraries.
 - Optional GPU backends auto-detected: Vulkan SDK and/or the CUDA toolkit.
 
+**macOS**
+- Xcode Command Line Tools (`xcode-select --install`) for the AppleClang C++20
+  toolchain. Qt 6 (Homebrew `qt` or the online installer, e.g.
+  `~/Qt/6.11.0/macos`) with the Core/Gui/Widgets/Multimedia/Network modules.
+- The hotkey/paste use Carbon and Quartz (`Carbon.framework`,
+  `ApplicationServices.framework`) — both ship with the OS, no install needed.
+- GPU: Metal + Accelerate are always available and auto-detected; no toolkit to
+  install.
+- The paste keystroke (Cmd+V synthesis) needs **Accessibility permission**,
+  granted the first time it runs: System Settings → Privacy & Security →
+  Accessibility.
+
 ### whisper.cpp dependency
 
 By default the build **fetches whisper.cpp** (`v1.8.6`) via CMake `FetchContent`
@@ -308,6 +326,25 @@ and runs `windeployqt` so the folder is self-contained. Add `-Installer`
 (optionally `-IncludeModel`) to package the four backend setup `.exe`s (CPU /
 Vulkan / CUDA / All) with Inno Setup.
 
+### Build & run — macOS
+
+```bash
+git clone <this-repo> voiceTyper && cd voiceTyper
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_PREFIX_PATH=$HOME/Qt/6.11.0/macos   # omit if Qt is on your CMAKE_PREFIX_PATH already
+cmake --build build -j
+scripts/download-model.sh
+./build/voiceTyper
+```
+
+There's no `.app` bundle or convenience script yet (see
+[Roadmap](#roadmap--todo)) — this builds and runs a plain Mach-O binary, which
+is enough for local development; global hotkeys and Metal GPU accel both work
+unbundled. `SettingsStore::autodetectModelPath()` looks for a model next to the
+binary first, so either copy `models/` into `build/` or point Settings at the
+`models/` folder at the repo root (run from the repo root and it's found via
+the `./models` fallback).
+
 ### Package Linux `.deb`s
 
 ```bash
@@ -342,12 +379,20 @@ not land — for fully reliable paste, run an **X11 session** for now. A native
 Wayland input backend (virtual-keyboard protocol / uinput) is a TODO.
 
 ### macOS
-The architecture is cross-platform; macOS-specific pieces are stubbed with clear
-TODOs:
+The architecture is cross-platform; macOS-specific pieces:
 - **Paste keystroke** (`KeyboardPaster_mac.cpp`): Quartz `CGEvent` Cmd+V is
   implemented but needs **Accessibility permission**; surface a prompt in the UI.
-- **Global hotkey** (`HotkeyService_mac.cpp`): TODO — implement with Carbon
-  `RegisterEventHotKey`; requires running as a proper `.app` bundle.
+- **Global hotkey** (`HotkeyService_mac.cpp`): implemented with Carbon
+  `RegisterEventHotKey` + an application event handler for
+  `kEventHotKeyPressed`. Unlike a `CGEventTap`, this is serviced by the
+  WindowServer, so it needs no Accessibility permission and works from an
+  unbundled binary too. Qt swaps Control/Meta on macOS by default, so a
+  sequence captured in Settings (e.g. physical ⌘) round-trips correctly —
+  see the mapping note at the top of the file.
+- **GPU acceleration**: Metal + Accelerate (BLAS) are auto-detected and built
+  in by whisper.cpp's own CMake defaults on Apple — no extra flags needed;
+  `enumerateComputeDevices()`/`resolveBackend()` (`ComputeBackends.cpp`) are
+  backend-agnostic and pick Metal up the same way they do Vulkan/CUDA.
 - Audio capture, ASR, commands, clipboard, overlay, tray, and settings are
   already portable (Qt + whisper.cpp).
 
@@ -361,11 +406,11 @@ AppController            end-to-end coordinator (the dictation pipeline)
 │   ├─ AudioRecorder         QAudioSource capture → 16 kHz mono float
 │   └─ CommandDetectionLoop  live "stop word" detection while recording
 ├─ WhisperAsrEngine     whisper.cpp wrapper (IAsrEngine; NullAsrEngine fallback)
-│   └─ ComputeBackends      enumerate/resolve CPU · Vulkan · CUDA devices
+│   └─ ComputeBackends      enumerate/resolve CPU · Vulkan · CUDA · Metal devices
 ├─ CommandEngine        phrase/regex command matching + text reconstruction
 ├─ ClipboardPasteService save clipboard → set text → paste → restore
 │   └─ KeyboardPaster        platform keystroke synth (X11 / Win / mac)
-├─ HotkeyService        global hotkey (X11 XGrabKey / Win RegisterHotKey / mac TODO)
+├─ HotkeyService        global hotkey (X11 XGrabKey / Win RegisterHotKey / mac Carbon RegisterEventHotKey)
 ├─ TextPostProcessor    NoOp now; HttpTextPostProcessor skeleton for future LLM cleanup
 ├─ SettingsStore        QSettings + commands.json
 └─ UI: OverlayWindow · TrayController · SettingsWindow
@@ -381,7 +426,10 @@ Source lives under `src/` grouped by module (`app/`, `audio/`, `asr/`, `commands
 
 ## Roadmap / TODO
 
-- macOS hotkey + Accessibility onboarding.
+- macOS Accessibility-permission onboarding (prompt/instructions in the UI for
+  the paste keystroke, which silently no-ops until granted).
+- macOS `.app` bundle + `.dmg` packaging (icon, `Info.plist`, code signing,
+  `macdeployqt`) — no installable package yet, only a plain dev build.
 - Native **Wayland** input backend (virtual-keyboard protocol / uinput).
 - `regex` reconstruction parity with the phrase pass (whitespace-inserting regex).
 - Additional command actions (`submit`, `escape`, `delete_previous_word`, …).

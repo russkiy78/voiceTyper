@@ -1,9 +1,24 @@
 cmake_minimum_required(VERSION 3.21)
 
+# Must be set before project(): otherwise Clang defaults to the installed
+# SDK's own version (e.g. "26.0" on a machine running today's macOS), which
+# makes every build silently refuse to launch on any older system even though
+# Qt 6.11 itself only requires 13.0 (Ventura) — the real floor here. Override
+# with -DCMAKE_OSX_DEPLOYMENT_TARGET=... if you need something else.
+if(NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum macOS version")
+endif()
+
 project(voiceTyper
     VERSION 0.3.0
     DESCRIPTION "Local voice typing utility (Qt6 + whisper.cpp)"
     LANGUAGES CXX)
+
+# Objective-C++ is only needed for the small AppKit shim
+# (src/ui/MacWindowUtils.mm) that Qt's cross-platform API can't reach.
+if(APPLE)
+    enable_language(OBJCXX)
+endif()
 
 # Patch = git commit count so every commit auto-increments it without
 # touching CMakeLists.txt. Falls back to 0 in shallow/detached checkouts.
@@ -121,8 +136,9 @@ if(WIN32)
         src/clipboard/KeyboardPaster_win.cpp)
 elseif(APPLE)
     list(APPEND VOICETYPER_SOURCES
-        src/hotkey/HotkeyService_mac.cpp
-        src/clipboard/KeyboardPaster_mac.cpp)
+        src/hotkey/HotkeyService_mac.mm
+        src/clipboard/KeyboardPaster_mac.cpp
+        src/ui/MacWindowUtils.mm)
 else()
     list(APPEND VOICETYPER_SOURCES
         src/hotkey/HotkeyService_x11.cpp
@@ -139,6 +155,14 @@ if(WIN32 AND EXISTS "${CMAKE_SOURCE_DIR}/resources/voicetyper.ico")
 endif()
 
 qt_add_executable(voiceTyper WIN32 ${VOICETYPER_SOURCES})
+
+# ARC for the static NSRunningApplication* in MacWindowUtils.mm (frontmost-app
+# capture/restore around the paste keystroke) so it's retained/released
+# correctly without manual bookkeeping.
+if(APPLE)
+    set_source_files_properties(src/ui/MacWindowUtils.mm PROPERTIES
+        COMPILE_FLAGS "-fobjc-arc")
+endif()
 
 target_include_directories(voiceTyper PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
@@ -173,7 +197,8 @@ if(WIN32)
 elseif(APPLE)
     find_library(CARBON_LIBRARY Carbon)
     find_library(APPSERVICES_LIBRARY ApplicationServices)
-    target_link_libraries(voiceTyper PRIVATE ${CARBON_LIBRARY} ${APPSERVICES_LIBRARY})
+    find_library(APPKIT_LIBRARY AppKit)
+    target_link_libraries(voiceTyper PRIVATE ${CARBON_LIBRARY} ${APPSERVICES_LIBRARY} ${APPKIT_LIBRARY})
 else()
     # Linux / X11. Requires: libx11-dev libxtst-dev libxcb1-dev
     find_package(X11 REQUIRED)
@@ -197,6 +222,32 @@ add_custom_command(TARGET voiceTyper POST_BUILD
             "${CMAKE_SOURCE_DIR}/config/commands.default.json"
             "$<TARGET_FILE_DIR:voiceTyper>/commands.default.json"
     COMMENT "Copying default command config next to the binary")
+
+# ----------------------------------------------------------------------------
+# macOS: keep the dev .app bundle's binary in sync and codesigned.
+#
+# The bundle at ${CMAKE_BINARY_DIR}/voiceTyper.app isn't produced by this
+# CMake target (no MACOSX_BUNDLE), so without this it silently goes stale on
+# every rebuild. Signing matters too: an ad-hoc signature changes on every
+# rebuild, which resets any Accessibility/Input Monitoring permission grant
+# (needed for the global hotkey) every time. Signing with a stable local
+# identity — see README's macOS setup — keeps that grant valid across
+# rebuilds. Falls back to ad-hoc signing if that identity isn't present
+# (e.g. a fresh checkout that hasn't created one yet).
+# ----------------------------------------------------------------------------
+if(APPLE)
+    set(VT_MAC_BUNDLE "${CMAKE_BINARY_DIR}/voiceTyper.app")
+    set(VT_CODESIGN_IDENTITY "voiceTyper Dev" CACHE STRING
+        "Code signing identity for the dev .app bundle (macOS)")
+    add_custom_command(TARGET voiceTyper POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${VT_MAC_BUNDLE}/Contents/MacOS"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE:voiceTyper>"
+                "${VT_MAC_BUNDLE}/Contents/MacOS/voiceTyper"
+        COMMAND bash -c "codesign --force --sign '${VT_CODESIGN_IDENTITY}' '${VT_MAC_BUNDLE}/Contents/MacOS/voiceTyper' 2>/dev/null || codesign --force --sign - '${VT_MAC_BUNDLE}/Contents/MacOS/voiceTyper'"
+        COMMENT "Refreshing and codesigning voiceTyper.app"
+        VERBATIM)
+endif()
 
 install(TARGETS voiceTyper RUNTIME DESTINATION bin)
 install(FILES config/commands.default.json DESTINATION bin)

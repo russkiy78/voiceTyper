@@ -5,6 +5,10 @@
 #include <QPainterPath>
 #include <QScreen>
 
+#ifdef Q_OS_MAC
+#include "ui/MacWindowUtils.h"
+#endif
+
 namespace vt {
 
 namespace {
@@ -17,13 +21,23 @@ constexpr int kDurationMs   = 2000;
 } // namespace
 
 ToastOverlay::ToastOverlay(QWidget* parent) : QWidget(parent) {
-    setWindowFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint | Qt::Tool |
-                   Qt::WindowDoesNotAcceptFocus | Qt::BypassWindowManagerHint);
+    // See OverlayWindow.cpp for why Qt::BypassWindowManagerHint is dropped
+    // on macOS only, keeping Windows/X11 behavior unchanged.
+    Qt::WindowFlags flags = Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint | Qt::Tool |
+                            Qt::WindowDoesNotAcceptFocus;
+#ifndef Q_OS_MAC
+    flags |= Qt::BypassWindowManagerHint;
+#endif
+    setWindowFlags(flags);
     setAttribute(Qt::WA_TranslucentBackground);
     setAttribute(Qt::WA_ShowWithoutActivating);
     setAttribute(Qt::WA_TransparentForMouseEvents);
     setFocusPolicy(Qt::NoFocus);
     setFixedSize(kWidth, kHeight);
+
+#ifdef Q_OS_MAC
+    mac::preventPanelHideOnDeactivate(this);
+#endif
 
     hideTimer_.setSingleShot(true);
     hideTimer_.setInterval(kDurationMs);

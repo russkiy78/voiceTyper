@@ -3,6 +3,8 @@
 /build-*/
 /cmake-build-*/
 /out/
+/dist-macos/
+*.dmg
 
 # Whisper models (downloaded separately, large)
 /models/*.bin
