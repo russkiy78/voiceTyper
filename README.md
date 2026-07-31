@@ -13,8 +13,8 @@ account, no telemetry. Your audio never leaves the device.
 - **Stack:** C++20 · Qt 6 · CMake · whisper.cpp `v1.8.6` (bundled, statically linked)
 - **Compute:** CPU, **Vulkan**, **CUDA**, or **Metal** — picked at runtime from one binary
 - **Platforms:** Ubuntu/Linux (X11; Wayland via a GNOME shortcut), Windows, and
-  macOS (see [Platform notes](#platform-notes) — paste keystroke needs
-  Accessibility permission).
+  macOS (see [Platform notes](#platform-notes) — the global hotkey and paste
+  keystroke both need Accessibility permission).
 
 <p align="center">
   <img src="docs/settings.png" alt="voiceTyper Settings window" width="480">
@@ -249,13 +249,26 @@ build scripts auto-detect it, or pass `-DCMAKE_PREFIX_PATH`. A distro Qt6
 - Xcode Command Line Tools (`xcode-select --install`) for the AppleClang C++20
   toolchain. Qt 6 (Homebrew `qt` or the online installer, e.g.
   `~/Qt/6.11.0/macos`) with the Core/Gui/Widgets/Multimedia/Network modules.
-- The hotkey/paste use Carbon and Quartz (`Carbon.framework`,
-  `ApplicationServices.framework`) — both ship with the OS, no install needed.
+- The global hotkey uses `NSEvent` global/local monitors
+  (`AppKit.framework`); the paste keystroke uses Quartz `CGEvent`
+  (`ApplicationServices.framework`). Both ship with the OS, no install needed
+  — but **both now require Accessibility (Input Monitoring) permission**,
+  granted the first time it runs: System Settings → Privacy & Security →
+  Accessibility. (Carbon's `RegisterEventHotKey` used to avoid needing this
+  for the hotkey, but its callback stopped firing on macOS 26.)
 - GPU: Metal + Accelerate are always available and auto-detected; no toolkit to
   install.
-- The paste keystroke (Cmd+V synthesis) needs **Accessibility permission**,
-  granted the first time it runs: System Settings → Privacy & Security →
-  Accessibility.
+- **One-time: a stable local codesign identity.** An ad-hoc signature changes
+  on every rebuild, which silently revokes the Accessibility grant above each
+  time you rebuild. `CMakeLists.txt` re-signs the dev `build/voiceTyper.app`
+  bundle after every build with a self-signed identity named `voiceTyper Dev`,
+  so the grant survives rebuilds — but you have to create that identity once:
+  open **Keychain Access → Certificate Assistant → Create a Certificate…**,
+  name it `voiceTyper Dev`, type **Self Signed Root**, certificate type
+  **Code Signing**. Without it, the build falls back to ad-hoc signing and
+  you'll need to re-approve Accessibility after every rebuild.
+- The minimum deployment target is `13.0` (`CMAKE_OSX_DEPLOYMENT_TARGET`,
+  overridable with `-DCMAKE_OSX_DEPLOYMENT_TARGET=...`).
 
 ### whisper.cpp dependency
 
@@ -337,13 +350,13 @@ scripts/download-model.sh
 ./build/voiceTyper
 ```
 
-There's no `.app` bundle or convenience script yet (see
-[Roadmap](#roadmap--todo)) — this builds and runs a plain Mach-O binary, which
-is enough for local development; global hotkeys and Metal GPU accel both work
-unbundled. `SettingsStore::autodetectModelPath()` looks for a model next to the
-binary first, so either copy `models/` into `build/` or point Settings at the
-`models/` folder at the repo root (run from the repo root and it's found via
-the `./models` fallback).
+This produces a plain Mach-O binary plus a minimal `build/voiceTyper.app`
+wrapper that CMake keeps in sync and codesigned after every build (see the
+one-time cert setup above) — that's what keeps your Accessibility permission
+grant alive across rebuilds during dev. `SettingsStore::autodetectModelPath()`
+looks for a model next to the binary first, so either copy `models/` into
+`build/` or point Settings at the `models/` folder at the repo root (run from
+the repo root and it's found via the `./models` fallback).
 
 ### Package Linux `.deb`s
 
@@ -352,6 +365,24 @@ scripts/build_deb.sh                   # builds cpu vulkan cuda
 scripts/build_deb.sh cpu               # just one variant
 QT_PREFIX=~/Qt/6.11.1/gcc_64 scripts/build_deb.sh
 ```
+
+### Package macOS `.app` / `.dmg`
+
+```bash
+scripts/package-macos.sh                          # ad-hoc signed, default Qt kit
+QT_DIR=~/Qt/6.11.0/macos scripts/package-macos.sh
+VT_PACKAGE_MODEL=none scripts/package-macos.sh     # ship without a bundled model
+```
+
+Produces a self-contained `voiceTyper.app` (Qt bundled via `macdeployqt`, a
+generated `.icns` if `python3`+Pillow are available, and the `small-q5_1`
+model bundled by default) packaged into `voiceTyper-<version>.dmg`. Without a
+paid Apple Developer ID it's ad-hoc signed — recipients see Gatekeeper's
+"Apple could not verify..." warning and need **right-click → Open** once. Set
+`CODESIGN_IDENTITY` to a `Developer ID Application: ...` identity (plus
+`APPLE_ID` / `APPLE_TEAM_ID` / `APPLE_APP_PASSWORD`) for a signed, notarized
+build with no Gatekeeper friction. This packaging identity is unrelated to
+the local `voiceTyper Dev` cert used for dev builds above.
 
 ---
 
@@ -380,19 +411,38 @@ Wayland input backend (virtual-keyboard protocol / uinput) is a TODO.
 
 ### macOS
 The architecture is cross-platform; macOS-specific pieces:
-- **Paste keystroke** (`KeyboardPaster_mac.cpp`): Quartz `CGEvent` Cmd+V is
-  implemented but needs **Accessibility permission**; surface a prompt in the UI.
-- **Global hotkey** (`HotkeyService_mac.cpp`): implemented with Carbon
-  `RegisterEventHotKey` + an application event handler for
-  `kEventHotKeyPressed`. Unlike a `CGEventTap`, this is serviced by the
-  WindowServer, so it needs no Accessibility permission and works from an
-  unbundled binary too. Qt swaps Control/Meta on macOS by default, so a
-  sequence captured in Settings (e.g. physical ⌘) round-trips correctly —
-  see the mapping note at the top of the file.
+- **Paste keystroke** (`KeyboardPaster_mac.cpp`): Quartz `CGEvent` Cmd+V,
+  needs **Accessibility permission**; not yet prompted for in the UI (see
+  [Roadmap](#roadmap--todo)).
+- **Global hotkey** (`HotkeyService_mac.mm`): `NSEvent` global/local monitors.
+  Carbon's `RegisterEventHotKey` was tried first — no Accessibility
+  permission needed, serviced by the WindowServer — but its callback stopped
+  firing on macOS 26 (a widely-reported Tahoe regression), so it was replaced
+  with `NSEvent` monitors, which **do** require Accessibility (Input
+  Monitoring) permission, the same grant the paste keystroke needs. Qt swaps
+  Control/Meta on macOS by default, so a sequence captured in Settings (e.g.
+  physical ⌘) round-trips correctly — see the mapping note at the top of the
+  file.
+- **Ad-hoc signature stability**: since an ad-hoc signature changes (and thus
+  revokes the Accessibility grant) on every rebuild, `CMakeLists.txt` signs
+  the dev `.app` with a persistent local `voiceTyper Dev` identity instead —
+  see [one-time cert setup](#build-from-source).
+- **Keeping the overlay/toast on top of other apps**: two Qt defaults fought
+  this on macOS specifically — `Qt::BypassWindowManagerHint` is dropped by
+  Cocoa (kept on Windows/X11), and `Qt::Tool` windows are backed by an
+  `NSPanel` that defaults `hidesOnDeactivate=YES`. Both are worked around via
+  an AppKit shim (`MacWindowUtils.mm`) so the overlay/toast stay visible while
+  you're dictating into a different, focused app.
+- **Focus is restored before pasting**: starting a hotkey-triggered recording
+  can shift focus to voiceTyper itself; `AppController` snapshots the
+  frontmost app when recording starts and reactivates it right before the
+  paste keystroke, so the text lands in the field you were dictating into.
 - **GPU acceleration**: Metal + Accelerate (BLAS) are auto-detected and built
   in by whisper.cpp's own CMake defaults on Apple — no extra flags needed;
   `enumerateComputeDevices()`/`resolveBackend()` (`ComputeBackends.cpp`) are
   backend-agnostic and pick Metal up the same way they do Vulkan/CUDA.
+- **Packaging**: `scripts/package-macos.sh` builds a distributable
+  `.app`/`.dmg` — see [Package macOS](#package-macos-appdmg).
 - Audio capture, ASR, commands, clipboard, overlay, tray, and settings are
   already portable (Qt + whisper.cpp).
 
@@ -410,7 +460,7 @@ AppController            end-to-end coordinator (the dictation pipeline)
 ├─ CommandEngine        phrase/regex command matching + text reconstruction
 ├─ ClipboardPasteService save clipboard → set text → paste → restore
 │   └─ KeyboardPaster        platform keystroke synth (X11 / Win / mac)
-├─ HotkeyService        global hotkey (X11 XGrabKey / Win RegisterHotKey / mac Carbon RegisterEventHotKey)
+├─ HotkeyService        global hotkey (X11 XGrabKey / Win RegisterHotKey / mac NSEvent monitors)
 ├─ TextPostProcessor    NoOp now; HttpTextPostProcessor skeleton for future LLM cleanup
 ├─ SettingsStore        QSettings + commands.json
 └─ UI: OverlayWindow · TrayController · SettingsWindow
@@ -427,9 +477,7 @@ Source lives under `src/` grouped by module (`app/`, `audio/`, `asr/`, `commands
 ## Roadmap / TODO
 
 - macOS Accessibility-permission onboarding (prompt/instructions in the UI for
-  the paste keystroke, which silently no-ops until granted).
-- macOS `.app` bundle + `.dmg` packaging (icon, `Info.plist`, code signing,
-  `macdeployqt`) — no installable package yet, only a plain dev build.
+  the hotkey and paste keystroke, which silently no-op until granted).
 - Native **Wayland** input backend (virtual-keyboard protocol / uinput).
 - `regex` reconstruction parity with the phrase pass (whitespace-inserting regex).
 - Additional command actions (`submit`, `escape`, `delete_previous_word`, …).
