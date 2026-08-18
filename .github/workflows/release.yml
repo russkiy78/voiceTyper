@@ -45,7 +45,13 @@ jobs:
 
   windows:
     needs: version
-    runs-on: windows-latest
+    # Pinned, not windows-latest: GitHub migrated windows-latest to Visual
+    # Studio 2026 in June 2026, a toolset generation CUDA 12.9 was never built
+    # against - its host_config.h version guard rejects it outright, and
+    # forcing past the guard crashes nvcc's cudafe++ (ACCESS_VIOLATION), not
+    # just a benign warning. windows-2022 keeps the actual VS2022 toolset
+    # CUDA 12.9 was released for. Revisit only alongside a CUDA toolkit bump.
+    runs-on: windows-2022
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
@@ -95,17 +101,19 @@ jobs:
       - name: Set up sccache
         uses: mozilla-actions/sccache-action@v0.0.11
 
-      # -allow-unsupported-compiler: CUDA 12.9's host_config.h whitelists MSVC
-      # versions as of its release, and windows-latest's VS2022 has since moved
-      # past that whitelist (fatal error C1189 "unsupported Microsoft Visual
-      # Studio version" otherwise). This is NVIDIA's own documented escape
-      # hatch for exactly this lag; whisper.cpp's CUDA kernels don't use any
-      # MSVC version-specific behavior, so it's safe here. Harmless on the
-      # vulkan-only variant too (CMAKE_CUDA_FLAGS is a no-op without CUDA).
+      # -allow-unsupported-compiler as a defensive fallback: CUDA 12.9's
+      # host_config.h whitelists MSVC versions as of its release, and a VS2022
+      # point update could still creep past that whitelist even while pinned
+      # to windows-2022 above (fatal error C1189 otherwise). NVCC_APPEND_FLAGS
+      # (not just -DCMAKE_CUDA_FLAGS, which CMake's own CUDA-compiler-ID probe
+      # ignores - confirmed empirically: its "Build flags:" line came back
+      # blank) makes nvcc apply the flag to every invocation unconditionally,
+      # including that probe.
       - name: Build installers (vulkan, all)
         shell: pwsh
         env:
           SCCACHE_GHA_ENABLED: "true"
+          NVCC_APPEND_FLAGS: "-allow-unsupported-compiler"
         run: |
           ./scripts/build-windows.ps1 -Installer -Variants vulkan,all `
             -QtPrefix $env:QT_ROOT_DIR `
@@ -113,8 +121,7 @@ jobs:
             -ExtraCmakeArgs @(
               "-DCMAKE_C_COMPILER_LAUNCHER=sccache",
               "-DCMAKE_CXX_COMPILER_LAUNCHER=sccache",
-              "-DCMAKE_CUDA_COMPILER_LAUNCHER=sccache",
-              "-DCMAKE_CUDA_FLAGS=-allow-unsupported-compiler"
+              "-DCMAKE_CUDA_COMPILER_LAUNCHER=sccache"
             )
 
       - name: Upload installers
