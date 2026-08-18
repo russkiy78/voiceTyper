@@ -138,6 +138,24 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # ubuntu-latest's default free disk space (~14GB) isn't enough for two
+      # full variant builds - "all" alone fans every ggml-cuda .cu file out
+      # across 8 pinned CUDA architectures (the portable Pascal..Blackwell
+      # baseline in cmake/WhisperCpp.cmake) worth of PTX+SASS, on top of the
+      # CUDA toolkit install and two bundled-Qt .deb stagings. Clearing the
+      # preinstalled Android/.NET/Haskell/Docker bloat this build never uses
+      # frees ~20-30GB. (The 4th pipeline run got all the way through
+      # building+installing+bundling the "all" variant, then died with a bare
+      # exit code 1 and no error text mid-Qt-bundling - consistent with
+      # silent ENOSPC; the df -h below gives real evidence either way.)
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: false
+
+      - name: Disk space before build
+        run: df -h /
+
       # spirv-headers: ggml-vulkan's CMakeLists.txt does
       # find_package(SPIRV-Headers CONFIG REQUIRED) unconditionally (in
       # addition to Vulkan/glslc) - without it, configure fails outright.
@@ -176,6 +194,10 @@ jobs:
           VOICETYPER_VERSION: ${{ needs.version.outputs.version }}
           VOICETYPER_EXTRA_CMAKE_ARGS: "-DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache"
         run: QT_KIT="$QT_ROOT_DIR" scripts/build_deb.sh vulkan all
+
+      - name: Disk space after build
+        if: always()
+        run: df -h /
 
       - name: Upload .debs
         uses: actions/upload-artifact@v7
