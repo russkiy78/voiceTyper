@@ -123,13 +123,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # spirv-headers: ggml-vulkan's CMakeLists.txt does
+      # find_package(SPIRV-Headers CONFIG REQUIRED) unconditionally (in
+      # addition to Vulkan/glslc) - without it, configure fails outright.
       - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build git \
             libx11-dev libxtst-dev libxcb1-dev libasound2-dev libpulse-dev \
-            libvulkan-dev glslc
+            libvulkan-dev glslc spirv-headers
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
