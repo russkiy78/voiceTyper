@@ -7,6 +7,8 @@
 #   scripts/package-macos.sh
 #   QT_DIR=~/Qt/6.11.0/macos scripts/package-macos.sh
 #   CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" scripts/package-macos.sh
+#   VOICETYPER_VERSION=0.3.42 scripts/package-macos.sh   # override the auto-derived version (CI)
+#   VOICETYPER_EXTRA_CMAKE_ARGS="-DCMAKE_CXX_COMPILER_LAUNCHER=sccache" scripts/package-macos.sh
 #
 # Signing:
 #   Without a Developer ID, this ad-hoc signs the app (default — no setup
@@ -47,10 +49,22 @@ cd "$ROOT_DIR"
 
 PROJECT_NAME="voiceTyper"
 BUNDLE_ID="com.voicetyper.voiceTyper"
-VERSION="$(grep -A2 '^project(' CMakeLists.txt | awk '/VERSION/{print $2}')"
-COMMIT_COUNT="$(git rev-list --count HEAD 2>/dev/null || echo 0)"
-FULL_VERSION="${VERSION%.*}.${COMMIT_COUNT}"   # matches VT_VERSION in CMakeLists.txt
+if [ -n "${VOICETYPER_VERSION:-}" ]; then
+    # CI computes this once, up front, and passes the same string to all three
+    # platform scripts rather than each re-deriving it independently.
+    FULL_VERSION="$VOICETYPER_VERSION"
+else
+    VERSION="$(grep -A2 '^project(' CMakeLists.txt | awk '/VERSION/{print $2}')"
+    COMMIT_COUNT="$(git rev-list --count HEAD 2>/dev/null || echo 0)"
+    FULL_VERSION="${VERSION%.*}.${COMMIT_COUNT}"   # matches VT_VERSION in CMakeLists.txt
+fi
 JOBS="$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+
+# Extra CMake configure args (space-separated), e.g. sccache compiler launchers.
+EXTRA_CMAKE_ARGS=()
+if [ -n "${VOICETYPER_EXTRA_CMAKE_ARGS:-}" ]; then
+    read -ra EXTRA_CMAKE_ARGS <<< "$VOICETYPER_EXTRA_CMAKE_ARGS"
+fi
 
 QT_DIR="${QT_DIR:-${HOME}/Qt/6.11.0/macos}"
 if [ ! -d "$QT_DIR" ]; then
@@ -78,7 +92,8 @@ echo "==================================================================="
 # ---------------------------------------------------------------------------
 cmake -S "$ROOT_DIR" -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_PREFIX_PATH="$QT_DIR"
+    -DCMAKE_PREFIX_PATH="$QT_DIR" \
+    "${EXTRA_CMAKE_ARGS[@]}"
 cmake --build "$BUILD_DIR" -j "$JOBS"
 
 BIN="${BUILD_DIR}/voiceTyper"

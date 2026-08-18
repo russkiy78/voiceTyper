@@ -23,6 +23,8 @@
 # Usage:
 #   scripts/build_deb.sh [variant ...]      # default: cpu vulkan cuda all
 #   QT_KIT=~/Qt/6.11.1/gcc_64 scripts/build_deb.sh cpu
+#   VOICETYPER_VERSION=0.3.42 scripts/build_deb.sh vulkan   # override the auto-derived version (CI)
+#   VOICETYPER_EXTRA_CMAKE_ARGS="-DCMAKE_CXX_COMPILER_LAUNCHER=sccache" scripts/build_deb.sh
 #
 # Build deps (Ubuntu/Debian):
 #   sudo apt install build-essential cmake git \
@@ -37,9 +39,26 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 
 PROJECT_NAME="voiceTyper"
-VERSION="$(grep -A2 '^project(' "${ROOT_DIR}/CMakeLists.txt" | awk '/VERSION/{print $2}')"
+# Patch is the git commit count (matches VT_VERSION baked into the binary by
+# CMakeLists.txt) - NOT the raw ".0" patch literal in project(... VERSION x.y.0),
+# which bump-version.sh/.ps1 always leave at .0. VOICETYPER_VERSION lets CI (which
+# computes this once, up front, for all three platforms) pass the exact same
+# string instead of every script re-deriving it independently.
+if [ -n "${VOICETYPER_VERSION:-}" ]; then
+    VERSION="$VOICETYPER_VERSION"
+else
+    MAJOR_MINOR="$(grep -A2 '^project(' "${ROOT_DIR}/CMakeLists.txt" | awk '/VERSION/{print $2}' | cut -d. -f1,2)"
+    COMMIT_COUNT="$(git -C "$ROOT_DIR" rev-list --count HEAD 2>/dev/null || echo 0)"
+    VERSION="${MAJOR_MINOR}.${COMMIT_COUNT}"
+fi
 ARCH="amd64"
 JOBS="$(nproc 2>/dev/null || echo 4)"
+
+# Extra CMake configure args (space-separated), e.g. sccache compiler launchers.
+EXTRA_CMAKE_ARGS=()
+if [ -n "${VOICETYPER_EXTRA_CMAKE_ARGS:-}" ]; then
+    read -ra EXTRA_CMAKE_ARGS <<< "$VOICETYPER_EXTRA_CMAKE_ARGS"
+fi
 
 # Install layout (inside each package):
 #   /usr/lib/voiceTyper/bin/voiceTyper           real binary
@@ -204,6 +223,7 @@ build_one() {
         -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON
         -DVOICETYPER_WITH_CUDA="$with_cuda"
         -DVOICETYPER_WITH_VULKAN="$with_vulkan"
+        "${EXTRA_CMAKE_ARGS[@]}"
     )
 
     cmake -S "$ROOT_DIR" -B "$build_dir" "${cmake_args[@]}"

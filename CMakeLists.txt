@@ -10,7 +10,7 @@ if(NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET)
 endif()
 
 project(voiceTyper
-    VERSION 0.3.0
+    VERSION 0.4.0
     DESCRIPTION "Local voice typing utility (Qt6 + whisper.cpp)"
     LANGUAGES CXX)
 

@@ -1,0 +1,221 @@
+name: Build & Release
+
+# Builds voiceTyper for Windows, Linux, and macOS on every push to main, and
+# publishes the results as a new GitHub Release. Version is auto-derived as
+# MAJOR.MINOR.<git commit count> (same scheme as VT_VERSION baked into the
+# binary by CMakeLists.txt) - computed once in the `version` job and passed
+# explicitly to every build job so all platforms stamp the identical string.
+#
+# workflow_dispatch is included so the pipeline can be re-run on demand
+# (useful while iterating on this workflow) without needing a new commit.
+on:
+  push:
+    branches: [master] # this repo's default branch is "master", not "main"
+  workflow_dispatch: {}
+
+# A second push while a build is still running cancels the superseded run
+# instead of queuing a full 3-platform build behind it.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+env:
+  QT_VERSION: "6.11.1"
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.compute.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # full history: the version is derived from commit count
+
+      - id: compute
+        run: |
+          MAJOR_MINOR="$(grep -A2 '^project(' CMakeLists.txt | awk '/VERSION/{print $2}' | cut -d. -f1,2)"
+          COUNT="$(git rev-list --count HEAD)"
+          VERSION="${MAJOR_MINOR}.${COUNT}"
+          echo "voiceTyper version: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  windows:
+    needs: version
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          modules: qtmultimedia
+
+      - name: Install Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v6
+
+      # No version pin here on purpose (unlike CUDA below): the Vulkan SDK is
+      # only needed at build time for headers/glslc/the loader import lib, and
+      # newer SDKs stay compatible with the shaders whisper.cpp/ggml-vulkan
+      # ships. install_runtime is off because nothing on this runner ever
+      # executes the built app (no GPU/driver here either way).
+      - name: Install Vulkan SDK
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          install_runtime: false
+          cache: true
+
+      # CUDA is pinned to the 12.x line and must NEVER float to "latest"/13.x:
+      # CUDA 13 dropped Pascal (GTX 10xx / 1080 Ti) support. See
+      # cmake/WhisperCpp.cmake's CUDAToolkit_VERSION VERSION_LESS "13" branch,
+      # which assumes exactly a 12.x toolkit to keep those cards working.
+      # Bumping this value requires re-checking against that comment first.
+      - name: Install CUDA 12.9
+        uses: Jimver/cuda-toolkit@v0.2.36
+        with:
+          cuda: "12.9.1"
+
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.11
+
+      - name: Build installers (vulkan, all)
+        shell: pwsh
+        env:
+          SCCACHE_GHA_ENABLED: "true"
+        run: |
+          ./scripts/build-windows.ps1 -Installer -Variants vulkan,all `
+            -QtPrefix $env:QT_ROOT_DIR `
+            -AppVersion "${{ needs.version.outputs.version }}" `
+            -ExtraCmakeArgs @(
+              "-DCMAKE_C_COMPILER_LAUNCHER=sccache",
+              "-DCMAKE_CXX_COMPILER_LAUNCHER=sccache",
+              "-DCMAKE_CUDA_COMPILER_LAUNCHER=sccache"
+            )
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-installers
+          path: build/*-setup.exe
+          if-no-files-found: error
+
+  linux:
+    needs: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build git \
+            libx11-dev libxtst-dev libxcb1-dev libasound2-dev libpulse-dev \
+            libvulkan-dev glslc
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: linux
+          target: desktop
+          arch: gcc_64
+          modules: qtmultimedia
+
+      # See the Windows job for why this exact version matters (Pascal / GTX
+      # 10xx support requires staying on the 12.x line, never 13.x).
+      - name: Install CUDA 12.9
+        uses: Jimver/cuda-toolkit@v0.2.36
+        with:
+          cuda: "12.9.1"
+
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.11
+
+      - name: Build .debs (vulkan, all)
+        env:
+          SCCACHE_GHA_ENABLED: "true"
+          VOICETYPER_VERSION: ${{ needs.version.outputs.version }}
+          VOICETYPER_EXTRA_CMAKE_ARGS: "-DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache"
+        run: QT_KIT="$QT_ROOT_DIR" scripts/build_deb.sh vulkan all
+
+      - name: Upload .debs
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-debs
+          path: build/*.deb
+          if-no-files-found: error
+
+  macos:
+    needs: version
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      # No CUDA/Vulkan here: NVIDIA has not supported macOS in years and
+      # Apple Silicon has no NVIDIA GPU at all. The only "macOS-specific
+      # driver" is Metal, which ggml enables by default on Apple platforms -
+      # no extra CMake flag needed.
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: mac
+          target: desktop
+          modules: qtmultimedia
+
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.11
+
+      - name: Install Pillow (for a real .icns app icon)
+        # Best-effort: package-macos.sh already skips icon generation
+        # gracefully when Pillow is unavailable, so a flaky pip install here
+        # shouldn't fail the whole job.
+        continue-on-error: true
+        run: pip3 install --break-system-packages --quiet Pillow
+
+      - name: Package .dmg (ad-hoc signed)
+        env:
+          SCCACHE_GHA_ENABLED: "true"
+          VOICETYPER_VERSION: ${{ needs.version.outputs.version }}
+          VOICETYPER_EXTRA_CMAKE_ARGS: "-DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache"
+          # No Developer ID configured -> package-macos.sh ad-hoc signs by
+          # default. Recipients see Gatekeeper's "Apple could not verify..."
+          # warning and need right-click > Open once; accepted for now.
+          # No bundled model, matching the Windows/Linux packages (neither
+          # bundles one by default either) - keeps the artifact small and CI fast.
+          VT_PACKAGE_MODEL: none
+        run: QT_DIR="$QT_ROOT_DIR" scripts/package-macos.sh
+
+      - name: Upload .dmg
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-dmg
+          path: "*.dmg"
+          if-no-files-found: error
+
+  release:
+    needs: [version, windows, linux, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ needs.version.outputs.version }}
+          name: voiceTyper ${{ needs.version.outputs.version }}
+          generate_release_notes: true
+          files: artifacts/**/*

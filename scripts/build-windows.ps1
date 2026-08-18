@@ -80,8 +80,9 @@
     Extra args passed through to CMake configure (e.g. -DVOICETYPER_WITH_CUDA=OFF).
 
 .PARAMETER Installer
-    After building, package Windows installers (.exe) with Inno Setup. FOUR
-    installers are produced, one per GPU-backend combination:
+    After building, package Windows installers (.exe) with Inno Setup. By
+    default FOUR installers are produced, one per GPU-backend combination
+    (narrow this with -Variants):
         voiceTyper-<ver>-cpu-setup.exe      CPU only
         voiceTyper-<ver>-vulkan-setup.exe   CPU + Vulkan
         voiceTyper-<ver>-cuda-setup.exe     CPU + CUDA
@@ -105,14 +106,22 @@
     are large (180 MB - 1 GB+); without it the user downloads a model on first run.
 
 .PARAMETER AppVersion
-    Version string stamped into the installer. Defaults to the project VERSION
-    parsed from CMakeLists.txt.
+    Version string stamped into the installer. Defaults to the project
+    MAJOR.MINOR from CMakeLists.txt plus the git commit count (matches the
+    VT_VERSION baked into the binary) - pass this explicitly in CI so all
+    platforms stamp the exact same version instead of each re-deriving it.
+
+.PARAMETER Variants
+    With -Installer, which backend combinations to build: any of
+    cpu, vulkan, cuda, all (default: all four). E.g. -Variants vulkan,all
+    skips the plain CPU-only and CUDA-only installers.
 
 .EXAMPLE
     .\scripts\build-windows.ps1
     .\scripts\build-windows.ps1 -QtPrefix "C:\Qt\6.11.1\msvc2022_64"
     .\scripts\build-windows.ps1 -BuildType Debug -Clean
     .\scripts\build-windows.ps1 -Installer            # 4 installers: CPU / Vulkan / CUDA / All
+    .\scripts\build-windows.ps1 -Installer -Variants vulkan,all
     .\scripts\build-windows.ps1 -Installer -IncludeModel
 #>
 param(
@@ -127,6 +136,8 @@ param(
     [switch]$Clean,
     [string[]]$ExtraCmakeArgs = @(),
     [switch]$Installer,
+    [ValidateSet("cpu", "vulkan", "cuda", "all")]
+    [string[]]$Variants = @("cpu", "vulkan", "cuda", "all"),
     [switch]$IncludeModel,
     [string]$AppVersion
 )
@@ -485,24 +496,32 @@ $haveCuda = [bool]$cudaCompiler
 
 if ($Installer) {
     if ([string]::IsNullOrWhiteSpace($AppVersion)) {
+        # MAJOR.MINOR from CMakeLists.txt's project() line plus the git commit
+        # count - matches VT_VERSION baked into the binary. The raw project()
+        # VERSION literal alone is NOT this (its patch is always .0; bump-version
+        # only ever writes .0 there), so don't regex that out and stop.
         $cml = Get-Content (Join-Path $Root "CMakeLists.txt") -Raw
-        $AppVersion = if ($cml -match 'project\(voiceTyper[\s\S]*?VERSION\s+([0-9][0-9.]*)') {
+        $majorMinor = if ($cml -match 'project\(voiceTyper[\s\S]*?VERSION\s+([0-9]+\.[0-9]+)') {
             $matches[1]
         } else {
-            "0.0.0"
+            "0.0"
         }
+        $commitCount = (& git -C $Root rev-list --count HEAD 2>$null)
+        if (-not $commitCount) { $commitCount = "0" }
+        $AppVersion = "$majorMinor.$commitCount"
     }
 
-    $variants = @(
+    $allVariants = @(
         [pscustomobject]@{ Name = "cpu";    Label = "CPU only";            Cuda = $false; Vulkan = $false }
         [pscustomobject]@{ Name = "vulkan"; Label = "CPU + Vulkan";        Cuda = $false; Vulkan = $true  }
         [pscustomobject]@{ Name = "cuda";   Label = "CPU + CUDA";          Cuda = $true;  Vulkan = $false }
         [pscustomobject]@{ Name = "all";    Label = "CPU + Vulkan + CUDA"; Cuda = $true;  Vulkan = $true  }
     )
+    $selectedVariants = $allVariants | Where-Object { $Variants -contains $_.Name }
 
     $jobs = @()
     $skipped = @()
-    foreach ($v in $variants) {
+    foreach ($v in $selectedVariants) {
         if ($v.Cuda -and -not $haveCuda) {
             $skipped += "$($v.Label) - CUDA toolkit (nvcc) not found on this build host"
             Write-Warning "Skipping '$($v.Label)' installer: no CUDA toolkit (nvcc) on this build host."
