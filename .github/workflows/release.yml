@@ -269,4 +269,10 @@ jobs:
           tag_name: v${{ needs.version.outputs.version }}
           name: voiceTyper ${{ needs.version.outputs.version }}
           generate_release_notes: true
-          files: artifacts/**/*
+          # Scoped to the actual installers, not artifacts/**/* - that swept
+          # up an incidental cuda-installer.log from the CUDA toolkit action
+          # into the first real release.
+          files: |
+            artifacts/**/*.exe
+            artifacts/**/*.deb
+            artifacts/**/*.dmg
