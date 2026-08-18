@@ -50,10 +50,19 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Pinned to 6.10.3, not env.QT_VERSION (6.11.1): aqtinstall (as used by
+      # this action) can't resolve ANY Qt >= 6.11.0 on Windows yet - Qt Company
+      # restructured the windows_x86 download.qt.io layout for 6.11 and
+      # aqtinstall 3.3.0 (latest on PyPI) still assumes the old layout
+      # (https://github.com/miurahr/aqtinstall/issues/959; fix merged but
+      # unreleased). Confirmed via `aqt list-qt windows desktop --arch 6.11.0`
+      # failing while 6.10.3 succeeds. Windows has no PipeWire/audio-backend
+      # reason to need exactly 6.11.1 the way Linux does (see build_deb.sh),
+      # so there's no downside to trailing behind on this platform only.
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: ${{ env.QT_VERSION }}
+          version: "6.10.3"
           host: windows
           target: desktop
           arch: win64_msvc2022_64
@@ -128,7 +137,9 @@ jobs:
           version: ${{ env.QT_VERSION }}
           host: linux
           target: desktop
-          arch: gcc_64
+          # aqtinstall >=3.x renamed the desktop-linux arch id to add the
+          # "linux_" prefix; the bare "gcc_64" from older docs/examples 404s.
+          arch: linux_gcc_64
           modules: qtmultimedia
 
       # See the Windows job for why this exact version matters (Pascal / GTX
