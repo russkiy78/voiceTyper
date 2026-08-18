@@ -95,6 +95,13 @@ jobs:
       - name: Set up sccache
         uses: mozilla-actions/sccache-action@v0.0.11
 
+      # -allow-unsupported-compiler: CUDA 12.9's host_config.h whitelists MSVC
+      # versions as of its release, and windows-latest's VS2022 has since moved
+      # past that whitelist (fatal error C1189 "unsupported Microsoft Visual
+      # Studio version" otherwise). This is NVIDIA's own documented escape
+      # hatch for exactly this lag; whisper.cpp's CUDA kernels don't use any
+      # MSVC version-specific behavior, so it's safe here. Harmless on the
+      # vulkan-only variant too (CMAKE_CUDA_FLAGS is a no-op without CUDA).
       - name: Build installers (vulkan, all)
         shell: pwsh
         env:
@@ -106,7 +113,8 @@ jobs:
             -ExtraCmakeArgs @(
               "-DCMAKE_C_COMPILER_LAUNCHER=sccache",
               "-DCMAKE_CXX_COMPILER_LAUNCHER=sccache",
-              "-DCMAKE_CUDA_COMPILER_LAUNCHER=sccache"
+              "-DCMAKE_CUDA_COMPILER_LAUNCHER=sccache",
+              "-DCMAKE_CUDA_FLAGS=-allow-unsupported-compiler"
             )
 
       - name: Upload installers
