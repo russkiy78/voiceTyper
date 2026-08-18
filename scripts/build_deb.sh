@@ -107,22 +107,31 @@ fi
 derive_deps() {
     local pkgroot="$1"; shift
     local glibc_core='ld-linux|/libc\.so|/libm\.so|/libdl\.so|/libpthread|/librt\.so|/libresolv'
+    # Every grep below is a filter that can legitimately match nothing (e.g.
+    # no non-bundled system libs at all, or none happen to be nvidia-named) -
+    # under `set -o pipefail`, grep's normal "no match" exit code (1) would
+    # otherwise silently kill this whole pipeline with no error message at
+    # all (that's exactly what happened in CI: a multi-second silent hang
+    # while ldd/dpkg -S ran, then a bare "exit code 1" once the pipeline's
+    # status propagated). `(... || true)` keeps a stage's actual stdout
+    # flowing through while never letting a plain "found nothing" abort the
+    # script.
     {
         for f in "$@"; do
             ldd "$f" 2>/dev/null
         done
     } \
         | awk '{print $3}' \
-        | grep -E '^/' \
-        | grep -vF "$pkgroot/" \
-        | grep -vE "$glibc_core" \
+        | (grep -E '^/' || true) \
+        | (grep -vF "$pkgroot/" || true) \
+        | (grep -vE "$glibc_core" || true) \
         | sort -u \
         | while read -r lib; do
-            dpkg -S "$(readlink -f "$lib")" 2>/dev/null | cut -d: -f1
+            dpkg -S "$(readlink -f "$lib")" 2>/dev/null | cut -d: -f1 || true
         done \
         | tr ',' '\n' \
         | sed 's/^ *//; s/ *$//' \
-        | grep -vE 'libnvidia|nvidia-' \
+        | (grep -vE 'libnvidia|nvidia-' || true) \
         | sort -u \
         | paste -sd ',' - \
         | sed 's/,/, /g'
