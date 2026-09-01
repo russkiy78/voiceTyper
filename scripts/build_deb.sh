@@ -9,8 +9,8 @@
 # Why separate packages: whisper.cpp's GPU backends are linked into the binary,
 # and CUDA in particular becomes a hard launch dependency (DT_NEEDED on
 # libcudart/libcublas/libcuda). A single "universal" build therefore refuses to
-# start on any machine without the CUDA runtime + NVIDIA driver — even for CPU
-# or Vulkan users. Splitting keeps each package runnable on its target.
+# start on any machine without the NVIDIA driver — even for CPU or Vulkan
+# users. Splitting keeps each package runnable on its target.
 #
 # Qt 6.11.1 is BUNDLED (from the Qt Online Installer kit) rather than declared
 # as an apt dependency. Ubuntu 24.04 ships Qt 6.4.2 whose GStreamer multimedia
@@ -19,6 +19,15 @@
 # ICU 73, the FFmpeg multimedia plugin, and platform plugins (xcb, wayland) are
 # all bundled under /usr/lib/voiceTyper/. Only system xcb/wayland/GL/audio
 # libraries are declared as apt Depends:.
+#
+# The CUDA runtime (libcudart/libcublas/libcublasLt/...) is likewise BUNDLED
+# for the cuda/all variants, same as Qt — the target does NOT need a matching
+# CUDA toolkit installed, and it will not conflict with a newer toolkit
+# already on the host (e.g. CUDA 13.x) since RPATH resolves the bundled 12.x
+# copies first. The one CUDA-related lib that stays a host dependency is
+# libcuda.so.1 itself: it's the NVIDIA driver's own library, tied to the
+# exact driver version installed, so it is intentionally never bundled — an
+# NVIDIA driver is still required on the host for cuda/all.
 #
 # Usage:
 #   scripts/build_deb.sh [variant ...]      # default: cpu vulkan cuda all
@@ -65,6 +74,7 @@ fi
 #   /usr/lib/voiceTyper/bin/commands.default.json
 #   /usr/lib/voiceTyper/bin/qt.conf              points Qt to bundled libs/plugins
 #   /usr/lib/voiceTyper/lib/libQt6*.so.*         bundled Qt 6.11.1 + ICU 73
+#   /usr/lib/voiceTyper/lib/libcudart.so.*, etc  bundled CUDA runtime (cuda/all only)
 #   /usr/lib/voiceTyper/plugins/                 bundled Qt plugins
 #   /usr/bin/voiceTyper -> ../lib/voiceTyper/bin/voiceTyper
 #
@@ -199,6 +209,47 @@ Libraries = lib
 QT_CONF_EOF
 }
 
+# ---------------------------------------------------------------------------
+# Bundle the CUDA runtime libs the binary actually links against (cudart,
+# cublas, cublasLt, nvJitLink, ...) into <pkgroot>/lib, alongside Qt.
+#
+# Run this BEFORE derive_deps(): once these libs live under pkgroot/lib,
+# ldd resolves them there (via the $ORIGIN/../lib RPATH) and derive_deps's
+# existing "starts with pkgroot"-prefix filter drops them from Depends
+# automatically — exactly like the bundled Qt libs, no separate exclusion
+# logic needed.
+#
+# libcuda.so.1 (the NVIDIA driver's own lib, not part of the CUDA toolkit)
+# is deliberately EXCLUDED — it must match whatever driver is installed on
+# the target, so it has to stay a real runtime dependency resolved from the
+# host, never bundled.
+# ---------------------------------------------------------------------------
+bundle_cuda() {
+    local pkgroot="$1" bin="$2"
+    local libdir="${pkgroot}/lib"
+    mkdir -p "$libdir"
+
+    echo "  Bundling CUDA runtime libs..."
+    local found=0
+    while read -r soname resolved; do
+        [ -z "${resolved:-}" ] && continue
+        case "$soname" in
+            libcuda.so*) continue ;;               # driver stub: must come from the host driver
+            libcu*|libnvJitLink*|libnvrtc*) ;;      # CUDA toolkit runtime libs: bundle
+            *) continue ;;
+        esac
+        cp -L "$resolved" "${libdir}/${soname}"
+        found=1
+    done < <(ldd "$bin" 2>/dev/null | awk '{print $1, $3}')
+
+    if [ "$found" -eq 0 ]; then
+        echo "ERROR: CUDA was requested but no CUDA runtime libs (libcudart/" >&2
+        echo "       libcublas/...) were resolved for $bin - is the CUDA" >&2
+        echo "       toolkit that built this binary still on the loader path?" >&2
+        exit 1
+    fi
+}
+
 # ===========================================================================
 # Per-variant build + package
 # ===========================================================================
@@ -256,6 +307,11 @@ build_one() {
     # --- Bundle Qt 6.11.1 -------------------------------------------------
     bundle_qt "$pkgroot"
 
+    # --- Bundle CUDA runtime (cuda/all only) --------------------------------
+    if [ "$with_cuda" = "ON" ]; then
+        bundle_cuda "$pkgroot" "$bin"
+    fi
+
     # --- /usr/bin launcher symlink -----------------------------------------
     ln -sf "../lib/${PROJECT_NAME}/bin/${PROJECT_NAME}" "$deb_dir/usr/bin/${PROJECT_NAME}"
 
@@ -278,8 +334,8 @@ Keywords=voice;typing;speech;transcription;
 DESKTOP_EOF
 
     # --- Dependencies -------------------------------------------------------
-    # Scan binary + bundled plugins; Qt libs in pkgroot/lib/ are filtered out
-    # automatically (they start with $deb_dir/), leaving only system deps.
+    # Scan binary + bundled plugins; Qt/CUDA libs in pkgroot/lib/ are filtered
+    # out automatically (they start with $deb_dir/), leaving only system deps.
     local bundled_plugins=()
     while IFS= read -r -d '' f; do
         bundled_plugins+=("$f")
@@ -293,26 +349,14 @@ DESKTOP_EOF
         # The Vulkan loader must come from the system so it can find the GPU ICDs.
         case "$deps" in *libvulkan1*) ;; *) deps="${deps:+$deps, }libvulkan1" ;; esac
     fi
-    if [ "$with_cuda" = "ON" ]; then
-        # CUDA runtime libs must be installed from NVIDIA's apt repository.
-        # derive_deps picks them up automatically via dpkg -S when CUDA is
-        # deb-installed. Warn if they were not found (e.g. CUDA installed via
-        # the .run installer without populating dpkg).
-        if ! echo "$deps" | grep -qiE 'libcudart|libcublas|cuda'; then
-            echo "WARNING: CUDA runtime packages not detected by dpkg -S." >&2
-            echo "         Install CUDA from NVIDIA's apt repository so the" >&2
-            echo "         Depends field is populated correctly:" >&2
-            echo "           https://developer.nvidia.com/cuda-downloads" >&2
-        fi
-    fi
     echo "Computed Depends: ${deps}"
 
     local extra_desc=""
     case "$variant" in
         cpu)    extra_desc=" CPU-only build." ;;
-        vulkan) extra_desc=" Vulkan GPU build; requires a Vulkan driver (e.g. mesa-vulkan-drivers or the vendor driver)." ;;
-        cuda)   extra_desc=" CUDA GPU build; requires the CUDA runtime (libcudart-12-x, libcublas-12-x from NVIDIA's apt repo) and the NVIDIA driver (libcuda.so.1) on the host." ;;
-        all)    extra_desc=" Universal build with CPU, Vulkan, and CUDA backends; requires a Vulkan driver, the CUDA runtime (libcudart-12-x, libcublas-12-x), and the NVIDIA driver (libcuda.so.1) on the host." ;;
+        vulkan) extra_desc=" Vulkan GPU build; requires a Vulkan driver (e.g. mesa-vulkan-drivers or the vendor driver) on the host." ;;
+        cuda)   extra_desc=" CUDA GPU build; CUDA runtime bundled — requires only the NVIDIA driver (libcuda.so.1) on the host." ;;
+        all)    extra_desc=" Universal build with CPU, Vulkan, and CUDA backends; CUDA runtime bundled — requires a Vulkan driver and the NVIDIA driver (libcuda.so.1) on the host." ;;
     esac
 
     # --- Control file -------------------------------------------------------
@@ -335,7 +379,7 @@ Maintainer: VoiceTyper Team
 Description: Local voice typing utility using Qt6 and whisper.cpp (${variant})
  A desktop application for voice-to-text transcription with local processing.
  Features global hotkey support, command detection, and offline transcription.
- Qt 6.11.1 is bundled; GPU runtimes are system dependencies.${extra_desc}
+ Qt 6.11.1 is bundled.${extra_desc}
 EOF
 
     # --- postinst: refresh icon cache after install ------------------------
