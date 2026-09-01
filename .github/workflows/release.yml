@@ -52,7 +52,12 @@ jobs:
     # just a benign warning. windows-2022 keeps the actual VS2022 toolset
     # CUDA 12.9 was released for. Revisit only alongside a CUDA toolkit bump.
     runs-on: windows-2022
-    timeout-minutes: 90
+    # 90 wasn't enough on 2026-09-01: a 14-day gap since the previous release
+    # let GitHub evict the sccache cache (7-day inactivity eviction), so the
+    # CUDA compile across all 8 pinned architectures had to start fully cold
+    # and got cancelled mid-build at the old 90min cap. 150 gives headroom for
+    # a cold-cache run without masking a genuine hang on a warm-cache one.
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v7
 
@@ -134,7 +139,10 @@ jobs:
   linux:
     needs: version
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # See the windows job for why 90 -> 150: a cold sccache cache (evicted
+    # after 7 days of repo inactivity) can push a from-scratch CUDA compile
+    # past 90 minutes even though a warm-cache run finishes in 20-40.
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v7
 
