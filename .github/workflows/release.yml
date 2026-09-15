@@ -24,6 +24,9 @@ permissions:
 
 env:
   QT_VERSION: "6.11.1"
+  # 0.18.0 breaks CUDA PTX targets with 'Missing "cubin" file output'.
+  # Revisit after https://github.com/mozilla/sccache/pull/2809 is released.
+  SCCACHE_VERSION: "v0.17.0"
 
 jobs:
   version:
@@ -105,6 +108,8 @@ jobs:
 
       - name: Set up sccache
         uses: mozilla-actions/sccache-action@v0.0.11
+        with:
+          version: ${{ env.SCCACHE_VERSION }}
 
       # -allow-unsupported-compiler as a defensive fallback: CUDA 12.9's
       # host_config.h whitelists MSVC versions as of its release, and a VS2022
@@ -195,6 +200,8 @@ jobs:
 
       - name: Set up sccache
         uses: mozilla-actions/sccache-action@v0.0.11
+        with:
+          version: ${{ env.SCCACHE_VERSION }}
 
       - name: Build .debs (vulkan, all)
         env:
@@ -235,6 +242,8 @@ jobs:
 
       - name: Set up sccache
         uses: mozilla-actions/sccache-action@v0.0.11
+        with:
+          version: ${{ env.SCCACHE_VERSION }}
 
       - name: Install Pillow (for a real .icns app icon)
         # Best-effort: package-macos.sh already skips icon generation
