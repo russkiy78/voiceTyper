@@ -103,6 +103,8 @@ public:
                         (1u << (code % 8)))
                         return;
                 }
+                // Activate on key release, after every key in the hotkey
+                // combination is released, rather than on key press.
                 releaseTimer_.stop();
                 emit activated();
             });
