@@ -11,6 +11,9 @@ class KeyboardPaster {
 public:
     virtual ~KeyboardPaster() = default;
 
+    // Wait before synthesis if held keys would change the paste shortcut.
+    virtual bool isReadyToPaste() const { return true; }
+
     // Sends the paste key combo. Returns false if synthesis failed/unsupported.
     virtual bool sendPaste() = 0;
 

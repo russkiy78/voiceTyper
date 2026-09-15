@@ -23,6 +23,35 @@ public:
             XCloseDisplay(display_);
     }
 
+    bool isReadyToPaste() const override {
+        if (!display_)
+            return true; // Let sendPaste report the unavailable display.
+
+        char keys[32] = {};
+        XQueryKeymap(display_, keys);
+        const auto down = [&keys](KeyCode code) {
+            return code != 0 && (static_cast<unsigned char>(keys[code / 8]) &
+                                 (1u << (code % 8))) != 0;
+        };
+
+        // In particular, Ctrl+V while Alt from Ctrl+Alt+V is still held
+        // triggers the recording hotkey. Releasing a modifier synthetically
+        // also corrupts the state of a physically held key. Wait instead.
+        bool ready = !down(XKeysymToKeycode(display_, XK_v));
+        if (auto* modifiers = XGetModifierMapping(display_)) {
+            for (int i = 0; i < 8 * modifiers->max_keypermod; ++i) {
+                // CapsLock/NumLock are toggles and do not alter Ctrl+V.
+                const int mask = 1 << (i / modifiers->max_keypermod);
+                if (mask == LockMask || mask == Mod2Mask)
+                    continue;
+                if (down(modifiers->modifiermap[i]))
+                    ready = false;
+            }
+            XFreeModifiermap(modifiers);
+        }
+        return ready;
+    }
+
     bool sendPaste() override {
         if (!display_)
             return false;

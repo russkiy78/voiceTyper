@@ -1,8 +1,9 @@
 // X11 global hotkey via XGrabKey on the root window.
 //
 // The grab is issued on Qt's own X11 connection so the resulting KeyPress is
-// delivered into Qt's event loop, where a QAbstractNativeEventFilter inspects
-// the xcb event. We grab with the four Lock/NumLock mask combinations so the
+// delivered into Qt's event loop, where a QAbstractNativeEventFilter arms the
+// shortcut. Activation waits until every key in the combination is released.
+// We grab with the four Lock/NumLock mask combinations so the
 // hotkey works regardless of CapsLock/NumLock state.
 
 #include "hotkey/HotkeyService.h"
@@ -12,6 +13,9 @@
 
 #include <QAbstractNativeEventFilter>
 #include <QGuiApplication>
+#include <QTimer>
+
+#include <vector>
 
 #include <xcb/xcb.h>
 
@@ -88,15 +92,20 @@ public:
         if (auto* x11 = qApp->nativeInterface<QNativeInterface::QX11Application>())
             display_ = x11->display();
         if (display_) {
-            // Without this, holding the hotkey past the key-repeat delay makes
-            // the server interleave synthetic KeyRelease/KeyPress pairs for
-            // every repeat tick, so there is no way to tell "still held" from
-            // "released and pressed again" by event type alone. Detectable
-            // autorepeat suppresses the synthetic releases: a genuine
-            // KeyRelease now only arrives when the key physically comes up,
-            // which nativeEventFilter below relies on via keyDown_.
             XkbSetDetectableAutoRepeat(display_, True, nullptr);
             qApp->installNativeEventFilter(this);
+            releaseTimer_.setInterval(10);
+            connect(&releaseTimer_, &QTimer::timeout, this, [this]() {
+                char keys[32] = {};
+                XQueryKeymap(display_, keys);
+                for (KeyCode code : combinationKeys_) {
+                    if (static_cast<unsigned char>(keys[code / 8]) &
+                        (1u << (code % 8)))
+                        return;
+                }
+                releaseTimer_.stop();
+                emit activated();
+            });
         } else {
             qCWarning(vtInput) << "X11 display unavailable; global hotkey disabled";
         }
@@ -132,6 +141,16 @@ public:
 
         keycode_ = keycode;
         modMask_ = qtModsToX11(hk.modifiers);
+        combinationKeys_ = {keycode_};
+        if (auto* modifiers = XGetModifierMapping(display_)) {
+            for (int i = 0; i < 8 * modifiers->max_keypermod; ++i) {
+                const int mask = 1 << (i / modifiers->max_keypermod);
+                const KeyCode code = modifiers->modifiermap[i];
+                if ((modMask_ & mask) && code != 0)
+                    combinationKeys_.push_back(code);
+            }
+            XFreeModifiermap(modifiers);
+        }
 
         Window root = DefaultRootWindow(display_);
         g_xError = false;
@@ -152,12 +171,12 @@ public:
         }
 
         registered_ = true;
-        keyDown_ = false;
         qCInfo(vtInput) << "Registered global hotkey" << sequence;
         return true;
     }
 
     void unregisterHotkey() override {
+        releaseTimer_.stop();
         if (!display_ || !registered_)
             return;
         Window root = DefaultRootWindow(display_);
@@ -167,7 +186,7 @@ public:
         XSync(display_, False);
         XSetErrorHandler(prev);
         registered_ = false;
-        keyDown_ = false;
+        combinationKeys_.clear();
     }
 
     bool nativeEventFilter(const QByteArray& eventType, void* message,
@@ -177,31 +196,23 @@ public:
 
         auto* ev = static_cast<xcb_generic_event_t*>(message);
         const uint8_t type = ev->response_type & ~0x80;
-        if (type != XCB_KEY_PRESS && type != XCB_KEY_RELEASE)
+        if (type != XCB_KEY_PRESS)
             return false;
 
         auto* ke = reinterpret_cast<xcb_key_press_event_t*>(ev);
         if (ke->detail != keycode_)
             return false;
 
-        if (type == XCB_KEY_RELEASE) {
-            keyDown_ = false;
-            return false;
-        }
-
-        // XGrabKey also delivers the key's own repeat presses while held; with
-        // detectable autorepeat those arrive as XCB_KEY_PRESS with no
-        // intervening release, so keyDown_ tells a genuine press (fire once)
-        // apart from a repeat tick (ignore) — otherwise holding the hotkey a
-        // little longer than the key-repeat delay toggles recording on and off
-        // repeatedly instead of once.
-        if (keyDown_)
+        // Arm once; repeats cannot activate or re-arm a held combination.
+        if (releaseTimer_.isActive())
             return false;
 
         const unsigned relevant = ShiftMask | ControlMask | Mod1Mask | Mod4Mask;
         if ((ke->state & relevant) == modMask_) {
-            keyDown_ = true;
-            emit activated();
+            // The passive grab ends when the main key comes up, so modifier
+            // releases may go to another app. Query the server until all keys
+            // are up instead of depending on delivery/order of KeyRelease.
+            releaseTimer_.start();
         }
         return false; // never consume; let other clients see it too
     }
@@ -211,7 +222,8 @@ private:
     KeyCode keycode_ = 0;
     unsigned modMask_ = 0;
     bool registered_ = false;
-    bool keyDown_ = false;
+    QTimer releaseTimer_;
+    std::vector<KeyCode> combinationKeys_;
 };
 
 } // namespace

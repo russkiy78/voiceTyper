@@ -50,19 +50,25 @@ void ClipboardPasteService::pasteText(const QString& text) {
     QTimer::singleShot(pasteDelayMs_, this, [self, previous]() {
         if (!self)
             return;
-        const bool ok = self->paster_->sendPaste();
-        if (!ok)
-            emit self->pasteFailed(tr("Failed to synthesize paste keystroke."));
+        self->tryPaste(previous);
+    });
+}
 
-        // 4. Restore the previous clipboard after the configured delay.
-        const QString prev = previous;
-        QTimer::singleShot(self->restoreDelayMs_, self, [self, prev, ok]() {
-            if (!self)
-                return;
-            QGuiApplication::clipboard()->setText(prev);
-            if (ok)
-                emit self->pasteCompleted();
-        });
+void ClipboardPasteService::tryPaste(const QString& previous) {
+    if (!paster_->isReadyToPaste()) {
+        QTimer::singleShot(25, this, [this, previous]() { tryPaste(previous); });
+        return;
+    }
+
+    const bool ok = paster_->sendPaste();
+    if (!ok)
+        emit pasteFailed(tr("Failed to synthesize paste keystroke."));
+
+    // Restore only after the actual paste, including any wait for key release.
+    QTimer::singleShot(restoreDelayMs_, this, [this, previous, ok]() {
+        QGuiApplication::clipboard()->setText(previous);
+        if (ok)
+            emit pasteCompleted();
     });
 }
 

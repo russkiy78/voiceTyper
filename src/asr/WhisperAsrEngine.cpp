@@ -258,6 +258,14 @@ TranscriptionResult WhisperAsrEngine::transcribe(
         result.ok = true;
         return result;
     }
+    // Even digital silence can produce a plausible phrase, particularly with
+    // a forced language. This floor is below one 16-bit PCM quantization step;
+    // it rejects empty input without treating quiet speech as silence.
+    if (std::all_of(audio.samples.begin(), audio.samples.end(),
+                    [](float sample) { return std::abs(sample) < 1.0e-5f; })) {
+        result.ok = true;
+        return result;
+    }
 
     whisper_full_params params =
         whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
@@ -293,25 +301,13 @@ TranscriptionResult WhisperAsrEngine::transcribe(
         params.abort_callback_user_data = options.abortFlag.get();
     }
 
-    // Scale the encoder context to the actual audio length. By default whisper
-    // pads every clip to 30 s and encodes all 1500 frames, so a 2 s clip pays
-    // the full 30 s cost. There are ~50 encoder frames per second of audio.
-    //
-    // The headroom is +3 s (~150 frames) with a 300-frame floor, NOT +1 s.
-    // The distilled turbo decoder hallucinates a repeat of the utterance when
-    // audio_ctx sits just above the speech content and the clip has trailing
-    // silence: it re-decodes the silence region and emits the phrase twice (the
-    // "duplicated text" bug). Empirically the minimum safe headroom shrinks with
-    // clip length (~+150 frames at 2.5 s, +75 at 4.3 s, ~0 by 8 s), so a flat
-    // +150 plus a generous floor for short clips clears it. Too-tight values are
-    // also paradoxically slower, because the bad decode triggers temperature
-    // fallback retries. Clamped to the model max, so clips near 30 s fall back
-    // to full context.
+    // Preserve the model's native encoder context. Shortening it changes the
+    // model's attention window, including for speech near pauses, and the
+    // decoder can hallucinate or repeat text. This also applies to fast passes:
+    // command detection shares the same model and must recognize real speech.
+    params.audio_ctx = 0;
     const double audioSeconds = audio.durationSeconds();
     const int modelMaxCtx = whisper_model_n_audio_ctx(ctx_);
-    params.audio_ctx = std::clamp(
-        static_cast<int>(std::ceil((audioSeconds + 3.0) * 50.0)), 300,
-        modelMaxCtx);
 
     qCDebug(vtAsr) << "transcribe: audio" << audioSeconds << "s, threads"
                    << params.n_threads << ", audio_ctx" << params.audio_ctx

@@ -31,6 +31,7 @@ signals:
     void pasteCompleted();
 
 private:
+    void tryPaste(const QString& previous);
     std::unique_ptr<KeyboardPaster> paster_;
     int restoreDelayMs_ = 600;
     // Small gap so the target app observes the new clipboard before paste fires.
