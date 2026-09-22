@@ -173,21 +173,24 @@ Open **Settings** from the tray menu. Everything persists via `QSettings`.
 
 ### Ubuntu / Debian (`.deb`)
 
-Three variants are produced, one per compute backend; install **one at a time**
-(they all provide `/usr/bin/voiceTyper` and conflict with each other). Qt 6 is
-bundled inside the package, so no Qt install is required.
+One package per compute backend (GitHub releases ship `vulkan` and `all`; the
+script also builds `cpu` and `cuda`). Install **one at a time** — they all
+provide `/usr/bin/voiceTyper` and conflict with each other. Qt 6 is bundled
+inside the package, so no Qt install is required. Built on Ubuntu 24.04; installs
+on 24.04 and newer (26.04 included).
 
 ```bash
-sudo apt install ./voiceTyper-cpu_0.1.0_amd64.deb      # CPU only
-sudo apt install ./voiceTyper-vulkan_0.1.0_amd64.deb   # CPU + Vulkan  (needs a Vulkan driver)
-sudo apt install ./voiceTyper-cuda_0.1.0_amd64.deb     # CPU + CUDA    (needs the NVIDIA driver)
+sudo apt install ./voiceTyper-vulkan_<version>_amd64.deb   # CPU + Vulkan  (needs a Vulkan driver)
+sudo apt install ./voiceTyper-all_<version>_amd64.deb      # CPU + Vulkan + CUDA (needs the NVIDIA driver)
+sudo apt install ./voiceTyper-cpu_<version>_amd64.deb      # CPU only
+sudo apt install ./voiceTyper-cuda_<version>_amd64.deb     # CPU + CUDA    (needs the NVIDIA driver)
 ```
 
-On install, the package downloads a default model (`ggml-large-v3-q5_0.bin`,
-~1.1 GB) into its private models dir, so the app works out of the box. The model
-is removed on purge.
+The package ships no speech model. Download one (e.g. `ggml-large-v3-q5_0.bin`,
+~1.1 GB, from [ggerganov/whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp))
+into `~/.config/voiceTyper/models/`; the app picks it up on the next start.
 
-> **Why three packages?** whisper.cpp's GPU backends link into the binary, and
+> **Why several packages?** whisper.cpp's GPU backends link into the binary, and
 > CUDA in particular becomes a hard launch dependency. A single "universal" build
 > would refuse to start on machines without the CUDA runtime — even for CPU/Vulkan
 > users — so the variants stay independently runnable.
@@ -363,9 +366,9 @@ the repo root and it's found via the `./models` fallback).
 ### Package Linux `.deb`s
 
 ```bash
-scripts/build_deb.sh                   # builds cpu vulkan cuda
+scripts/build_deb.sh                   # builds cpu vulkan cuda all
 scripts/build_deb.sh cpu               # just one variant
-QT_PREFIX=~/Qt/6.11.1/gcc_64 scripts/build_deb.sh
+QT_KIT=~/Qt/6.11.1/gcc_64 scripts/build_deb.sh
 ```
 
 ### Package macOS `.app` / `.dmg`

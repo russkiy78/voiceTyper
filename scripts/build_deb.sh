@@ -16,9 +16,11 @@
 # as an apt dependency. Ubuntu 24.04 ships Qt 6.4.2 whose GStreamer multimedia
 # backend silently fails to capture audio on PipeWire. Qt 6.11.1 uses the
 # FFmpeg backend with native PipeWire/PulseAudio support that works correctly.
-# ICU 73, the FFmpeg multimedia plugin, and platform plugins (xcb, wayland) are
-# all bundled under /usr/lib/voiceTyper/. Only system xcb/wayland/GL/audio
-# libraries are declared as apt Depends:.
+# The FFmpeg multimedia plugin and platform plugins (xcb, wayland) are bundled
+# under /usr/lib/voiceTyper/ together with every kit library they need (Qt
+# Quick/Qml for the FFmpeg plugin, the kit's FFmpeg and ICU builds, ...).
+# Depends: lists only what those files load from the system, as computed by
+# dpkg-shlibdeps, so the package installs on Ubuntu 24.04 and newer.
 #
 # The CUDA runtime (libcudart/libcublas/libcublasLt/...) is likewise BUNDLED
 # for the cuda/all variants, same as Qt — the target does NOT need a matching
@@ -36,7 +38,7 @@
 #   VOICETYPER_EXTRA_CMAKE_ARGS="-DCMAKE_CXX_COMPILER_LAUNCHER=sccache" scripts/build_deb.sh
 #
 # Build deps (Ubuntu/Debian):
-#   sudo apt install build-essential cmake git \
+#   sudo apt install build-essential dpkg-dev cmake git \
 #       libx11-dev libxtst-dev libxcb1-dev libasound2-dev libpulse-dev
 #   Vulkan variant also needs: libvulkan-dev glslc (glslang-tools / shaderc)
 #   CUDA variant also needs:   the CUDA toolkit (nvcc, from NVIDIA's apt repo)
@@ -73,7 +75,7 @@ fi
 #   /usr/lib/voiceTyper/bin/voiceTyper           real binary
 #   /usr/lib/voiceTyper/bin/commands.default.json
 #   /usr/lib/voiceTyper/bin/qt.conf              points Qt to bundled libs/plugins
-#   /usr/lib/voiceTyper/lib/libQt6*.so.*         bundled Qt 6.11.1 + ICU 73
+#   /usr/lib/voiceTyper/lib/libQt6*.so.*         bundled Qt 6.11.1 + ICU + FFmpeg
 #   /usr/lib/voiceTyper/lib/libcudart.so.*, etc  bundled CUDA runtime (cuda/all only)
 #   /usr/lib/voiceTyper/plugins/                 bundled Qt plugins
 #   /usr/bin/voiceTyper -> ../lib/voiceTyper/bin/voiceTyper
@@ -109,48 +111,66 @@ if [ ! -f "${ROOT_DIR}/voicetyper_icon.png" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Derive runtime Depends: ldd the binary, then map every library that resolves
-# to a system path (not glibc core) to its providing package via dpkg -S. The
-# NVIDIA driver is intentionally excluded — its package name is version-pinned
-# (libnvidia-compute-NNN) and must not be hard-coded.
+# Derive runtime Depends with dpkg-shlibdeps over every shipped ELF (binary,
+# plugins, bundled libs). It maps each file's *direct* DT_NEEDED libraries to
+# their packages, with minimum versions, and treats <pkgroot>/lib as private.
+#
+# The previous scan took the whole ldd closure of the build machine instead,
+# which dragged in transitive, release-specific packages - e.g. libflac12t64
+# (via libpulse -> libsndfile) exists on Ubuntu 24.04 but not 26.04 (libflac14),
+# making the .deb uninstallable there.
+#
+# The NVIDIA driver is intentionally excluded - its package name is pinned to
+# the driver version (libnvidia-compute-NNN). On a build machine without the
+# driver (CI), CUDA_STUB (set by bundle_cuda) stands in for libcuda.so.1 as a
+# private lib, since dpkg-shlibdeps refuses to continue on a missing library.
 # ---------------------------------------------------------------------------
+CUDA_STUB=""
+
 derive_deps() {
     local pkgroot="$1"; shift
-    local glibc_core='ld-linux|/libc\.so|/libm\.so|/libdl\.so|/libpthread|/librt\.so|/libresolv'
-    # Every grep below is a filter that can legitimately match nothing (e.g.
-    # no non-bundled system libs at all, or none happen to be nvidia-named) -
-    # under `set -o pipefail`, grep's normal "no match" exit code (1) would
-    # otherwise silently kill this whole pipeline with no error message at
-    # all (that's exactly what happened in CI: a multi-second silent hang
-    # while ldd/dpkg -S ran, then a bare "exit code 1" once the pipeline's
-    # status propagated). `(... || true)` keeps a stage's actual stdout
-    # flowing through while never letting a plain "found nothing" abort the
-    # script.
-    {
-        for f in "$@"; do
-            ldd "$f" 2>/dev/null
-        done
-    } \
-        | awk '{print $3}' \
-        | (grep -E '^/' || true) \
-        | (grep -vF "$pkgroot/" || true) \
-        | (grep -vE "$glibc_core" || true) \
-        | sort -u \
-        | while read -r lib; do
-            dpkg -S "$(readlink -f "$lib")" 2>/dev/null | cut -d: -f1 || true
-        done \
+    local tmp
+    tmp="$(mktemp -d)"
+    # dpkg-shlibdeps insists on a debian/control; its content is irrelevant.
+    mkdir -p "$tmp/debian" "$tmp/stubs"
+    printf 'Source: %s\n\nPackage: %s\nArchitecture: any\n' \
+        "$PROJECT_NAME" "$PROJECT_NAME" > "$tmp/debian/control"
+    if [ -n "$CUDA_STUB" ]; then
+        ln -s "$CUDA_STUB" "$tmp/stubs/libcuda.so.1"
+    fi
+
+    local out
+    if ! out="$(cd "$tmp" && dpkg-shlibdeps -O --ignore-missing-info \
+            -l"$pkgroot/lib" -l"$tmp/stubs" -e "$@" 2>"$tmp/stderr")"; then
+        cat "$tmp/stderr" >&2
+        rm -rf "$tmp"
+        echo "ERROR: dpkg-shlibdeps could not derive Depends" >&2
+        exit 1
+    fi
+    rm -rf "$tmp"
+
+    # `|| true`: under pipefail, grep's "no match" exit code would otherwise
+    # abort the script silently when nothing is filtered out.
+    echo "$out" \
+        | sed -n 's/^shlibs:Depends=//p' \
         | tr ',' '\n' \
         | sed 's/^ *//; s/ *$//' \
         | (grep -vE 'libnvidia|nvidia-' || true) \
-        | sort -u \
         | paste -sd ',' - \
         | sed 's/,/, /g'
 }
 
 # ---------------------------------------------------------------------------
-# Bundle Qt 6.11.1 libs and plugins into <pkgroot>/lib and <pkgroot>/plugins.
-# The binary's RPATH ($ORIGIN/../lib) and a qt.conf file make Qt find them at
-# runtime without touching the system Qt installation.
+# Bundle Qt plugins into <pkgroot>/plugins, then every library from the kit
+# that the binary and those plugins need into <pkgroot>/lib. The binary's
+# RPATH ($ORIGIN/../lib) and a qt.conf file make Qt find them at runtime
+# without touching the system Qt installation.
+#
+# The library set follows DT_NEEDED instead of a hand-written list: the FFmpeg
+# multimedia plugin alone needs Qt Quick/Qml/OpenGL, the kit's own FFmpeg
+# (libavcodec.so.61, ...) and its libQt6FFmpegStub-* shims. A fixed list
+# missed all of them, so the plugin failed to load on a clean system (no audio
+# capture) or picked up a mismatched system Qt Quick.
 #
 # Plugin RUNPATH is already $ORIGIN/../../lib in the installer kit — this
 # resolves correctly to <prefix>/lib/ when plugins live under <prefix>/plugins/.
@@ -160,21 +180,6 @@ bundle_qt() {
     local libdir="${pkgroot}/lib"
     local plugdir="${pkgroot}/plugins"
     mkdir -p "$libdir" "$plugdir"
-
-    echo "  Bundling Qt libs..."
-    local qt_libs=(
-        libQt6Core libQt6Gui libQt6Widgets libQt6Multimedia
-        libQt6Network libQt6DBus libQt6Concurrent
-        libQt6XcbQpa libQt6WaylandClient
-        libicudata libicui18n libicuuc
-    )
-    for name in "${qt_libs[@]}"; do
-        for f in "${QT_KIT}/lib/${name}.so".*; do
-            [[ -e "$f" || -L "$f" ]] || continue
-            [[ "$f" == *.debug ]] && continue
-            cp -P "$f" "$libdir/"
-        done
-    done
 
     echo "  Bundling Qt plugins..."
     # Multimedia: FFmpeg backend (PipeWire/PulseAudio)
@@ -198,6 +203,25 @@ bundle_qt() {
     mkdir -p "${plugdir}/wayland-shell-integration"
     for f in "${QT_KIT}/plugins/wayland-shell-integration/"*.so; do
         [ -e "$f" ] && cp "$f" "${plugdir}/wayland-shell-integration/"
+    done
+
+    echo "  Bundling Qt libs..."
+    # Breadth-first over DT_NEEDED: whatever the kit ships is copied under its
+    # soname (symlinks resolved) and scanned in turn; everything else has to
+    # come from the system and ends up in Depends via derive_deps().
+    local queue=("${pkgroot}/bin/${PROJECT_NAME}")
+    while IFS= read -r -d '' f; do
+        queue+=("$f")
+    done < <(find "$plugdir" -name '*.so' -print0)
+    while [ ${#queue[@]} -gt 0 ]; do
+        local elf="${queue[0]}" soname
+        queue=("${queue[@]:1}")
+        while read -r soname; do
+            [ -e "${libdir}/${soname}" ] && continue
+            [ -e "${QT_KIT}/lib/${soname}" ] || continue
+            cp -L "${QT_KIT}/lib/${soname}" "${libdir}/${soname}"
+            queue+=("${libdir}/${soname}")
+        done < <(readelf -d "$elf" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p')
     done
 
     # qt.conf: tells Qt to find its plugins and libs in the bundled locations
@@ -240,12 +264,48 @@ bundle_cuda() {
         esac
         cp -L "$resolved" "${libdir}/${soname}"
         found=1
+        # The toolkit's link stub of the driver lib, for derive_deps().
+        local stub
+        stub="$(dirname "$(readlink -f "$resolved")")/stubs/libcuda.so"
+        [ -e "$stub" ] && CUDA_STUB="$stub"
     done < <(ldd "$bin" 2>/dev/null | awk '{print $1, $3}')
 
     if [ "$found" -eq 0 ]; then
         echo "ERROR: CUDA was requested but no CUDA runtime libs (libcudart/" >&2
         echo "       libcublas/...) were resolved for $bin - is the CUDA" >&2
         echo "       toolkit that built this binary still on the loader path?" >&2
+        exit 1
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Fail the build if a shipped ELF can't resolve a library, or takes a Qt or
+# FFmpeg library from outside the package: that would be whatever Qt the build
+# machine happens to have (a mismatched build on the user's system, or nothing
+# at all on a clean one). libcuda.so.1 is exempt - it is the host's NVIDIA
+# driver and absent on CI.
+# ---------------------------------------------------------------------------
+verify_bundle() {
+    local pkgroot="$1" bad=0 elf line
+    while IFS= read -r -d '' elf; do
+        readelf -h "$elf" >/dev/null 2>&1 || continue
+        while IFS= read -r line; do
+            case "$line" in
+                *libcuda.so.1*) ;;
+                *"not found"*)
+                    echo "ERROR: ${elf#"$pkgroot"/}:${line}" >&2
+                    bad=1 ;;
+                *libQt6*|*libavcodec*|*libavformat*|*libavutil*|*libswresample*|*libswscale*)
+                    case "$line" in
+                        *"=> ${pkgroot}/"*) ;;
+                        *) echo "ERROR: ${elf#"$pkgroot"/} loads a library from outside the package:${line}" >&2
+                           bad=1 ;;
+                    esac ;;
+            esac
+        done < <(ldd "$elf" 2>/dev/null)
+    done < <(find "$pkgroot" -type f -print0)
+    if [ "$bad" -ne 0 ]; then
+        echo "ERROR: the package would not run on a clean system (see above)" >&2
         exit 1
     fi
 }
@@ -303,6 +363,10 @@ build_one() {
         echo "ERROR: expected installed binary at $bin" >&2
         exit 1
     fi
+    # cmake --install also installs whisper.cpp's static libs, headers and
+    # CMake/pkg-config files; none of it is needed at runtime.
+    rm -rf "${pkgroot}/include" "${pkgroot}/lib/cmake" "${pkgroot}/lib/pkgconfig"
+    find "${pkgroot}/lib" -name '*.a' -delete
 
     # --- Bundle Qt 6.11.1 -------------------------------------------------
     bundle_qt "$pkgroot"
@@ -335,17 +399,21 @@ Categories=Utility;Accessibility;
 Keywords=voice;typing;speech;transcription;
 DESKTOP_EOF
 
+    verify_bundle "$pkgroot"
+
     # --- Dependencies -------------------------------------------------------
-    # Scan binary + bundled plugins; Qt/CUDA libs in pkgroot/lib/ are filtered
-    # out automatically (they start with $deb_dir/), leaving only system deps.
-    local bundled_plugins=()
+    # Every shipped ELF: bundled libs count too, their system deps are ours.
+    local elfs=()
     while IFS= read -r -d '' f; do
-        bundled_plugins+=("$f")
-    done < <(find "${pkgroot}/plugins" -name "*.so" -print0 2>/dev/null)
+        readelf -h "$f" >/dev/null 2>&1 && elfs+=("$f")
+    done < <(find "$pkgroot" -type f -print0)
     local deps
-    deps="$(derive_deps "$deb_dir" "$bin" "${bundled_plugins[@]}")"
+    deps="$(derive_deps "$pkgroot" "${elfs[@]}")"
     # libqxcb.so (Qt 6.5+) dlopen's libxcb-cursor.so.0 at runtime — ldd misses it.
     case "$deps" in *libxcb-cursor0*) ;; *) deps="${deps:+$deps, }libxcb-cursor0" ;; esac
+    # The kit's FFmpeg needs libbz2.so.1, which Ubuntu only ships as a compat
+    # symlink to libbz2.so.1.0 - dpkg-shlibdeps can't map that to a package.
+    case "$deps" in *libbz2-1.0*) ;; *) deps="${deps:+$deps, }libbz2-1.0" ;; esac
 
     if [ "$with_vulkan" = "ON" ]; then
         # The Vulkan loader must come from the system so it can find the GPU ICDs.

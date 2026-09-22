@@ -143,7 +143,12 @@ jobs:
 
   linux:
     needs: version
-    runs-on: ubuntu-latest
+    # Pinned, not ubuntu-latest: dpkg-shlibdeps (scripts/build_deb.sh) takes
+    # the minimum versions in Depends from this machine's libraries and
+    # toolchain (glibc, libstdc++), so a .deb installs on the Ubuntu it was
+    # built on and newer. Building on the oldest supported LTS keeps 24.04
+    # working while 26.04 gets the same package.
+    runs-on: ubuntu-24.04
     # See the windows job for why 90 -> 150: a cold sccache cache (evicted
     # after 7 days of repo inactivity) can push a from-scratch CUDA compile
     # past 90 minutes even though a warm-cache run finishes in 20-40.
@@ -172,13 +177,14 @@ jobs:
       # spirv-headers: ggml-vulkan's CMakeLists.txt does
       # find_package(SPIRV-Headers CONFIG REQUIRED) unconditionally (in
       # addition to Vulkan/glslc) - without it, configure fails outright.
+      # dpkg-dev: dpkg-shlibdeps for the .deb Depends. xvfb: smoke test below.
       - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build git \
+            build-essential dpkg-dev cmake ninja-build git \
             libx11-dev libxtst-dev libxcb1-dev libasound2-dev libpulse-dev \
-            libvulkan-dev glslc spirv-headers
+            libvulkan-dev glslc spirv-headers xvfb xauth
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
@@ -209,6 +215,22 @@ jobs:
           VOICETYPER_VERSION: ${{ needs.version.outputs.version }}
           VOICETYPER_EXTRA_CMAKE_ARGS: "-DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache"
         run: QT_KIT="$QT_ROOT_DIR" scripts/build_deb.sh vulkan all
+
+      # Install the .debs the way users do (Depends must resolve on this
+      # Ubuntu) and start the vulkan one under a virtual X server (every
+      # bundled library and plugin must load). The "all" binary can't be
+      # started here: it needs the NVIDIA driver's libcuda.so.1 just to load.
+      - name: Smoke-test the .debs
+        run: |
+          sudo apt-get install -y ./build/voiceTyper-vulkan_*.deb
+          # The app never exits on its own: still running after 15 s = started.
+          status=0
+          xvfb-run -a timeout 15 voiceTyper || status=$?
+          if [ "$status" -ne 124 ]; then
+            echo "voiceTyper exited early (status $status)" >&2
+            exit 1
+          fi
+          sudo apt-get install -y ./build/voiceTyper-all_*.deb
 
       - name: Disk space after build
         if: always()
