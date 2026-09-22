@@ -220,12 +220,15 @@ jobs:
       # Ubuntu) and start the vulkan one under a virtual X server (every
       # bundled library and plugin must load). The "all" binary can't be
       # started here: it needs the NVIDIA driver's libcuda.so.1 just to load.
+      # install-qt-action points LD_LIBRARY_PATH/QT_PLUGIN_PATH/QML2_IMPORT_PATH
+      # at the Qt kit; unset them so the app loads only what the package ships.
       - name: Smoke-test the .debs
         run: |
           sudo apt-get install -y ./build/voiceTyper-vulkan_*.deb
           # The app never exits on its own: still running after 15 s = started.
           status=0
-          xvfb-run -a timeout 15 voiceTyper || status=$?
+          env -u LD_LIBRARY_PATH -u QT_PLUGIN_PATH -u QML2_IMPORT_PATH \
+            xvfb-run -a timeout 15 voiceTyper || status=$?
           if [ "$status" -ne 124 ]; then
             echo "voiceTyper exited early (status $status)" >&2
             exit 1

@@ -284,6 +284,10 @@ bundle_cuda() {
 # machine happens to have (a mismatched build on the user's system, or nothing
 # at all on a clean one). libcuda.so.1 is exempt - it is the host's NVIDIA
 # driver and absent on CI.
+#
+# ldd runs without LD_LIBRARY_PATH, which the installed app won't have either:
+# it outranks RUNPATH, and CI's install-qt-action points it at the Qt kit, so
+# every Qt library would otherwise resolve to the kit instead of the package.
 # ---------------------------------------------------------------------------
 verify_bundle() {
     local pkgroot="$1" bad=0 elf line
@@ -302,7 +306,7 @@ verify_bundle() {
                            bad=1 ;;
                     esac ;;
             esac
-        done < <(ldd "$elf" 2>/dev/null)
+        done < <(env -u LD_LIBRARY_PATH ldd "$elf" 2>/dev/null)
     done < <(find "$pkgroot" -type f -print0)
     if [ "$bad" -ne 0 ]; then
         echo "ERROR: the package would not run on a clean system (see above)" >&2
