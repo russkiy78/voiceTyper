@@ -9,7 +9,10 @@
 #include "hotkey/HotkeyService.h"
 
 #include "core/Logging.h"
+#include "core/XdgPortal.h"
 #include "hotkey/HotkeyParsing.h"
+#include "hotkey/HotkeyService_portal.h"
+#include "hotkey/X11Keysym.h"
 
 #include <QAbstractNativeEventFilter>
 #include <QGuiApplication>
@@ -25,9 +28,7 @@
 
 namespace vt {
 
-namespace {
-
-KeySym qtKeyToKeysym(int key) {
+unsigned long qtKeyToKeysym(int key) {
     // Printable ASCII: Qt::Key values match the corresponding X keysyms.
     if (key >= 0x20 && key <= 0x7e)
         return static_cast<KeySym>(key);
@@ -65,6 +66,8 @@ KeySym qtKeyToKeysym(int key) {
     default: return NoSymbol;
     }
 }
+
+namespace {
 
 unsigned qtModsToX11(Qt::KeyboardModifiers mods) {
     unsigned mask = 0;
@@ -231,6 +234,14 @@ private:
 } // namespace
 
 HotkeyService* HotkeyService::create(QObject* parent) {
+    // On Wayland the grab below only fires while an Xwayland window has focus;
+    // let the compositor own the shortcut instead.
+    if (portal::waylandInput()) {
+        if (portal::hasInterface(QStringLiteral("org.freedesktop.portal.GlobalShortcuts")))
+            return new PortalHotkeyService(parent);
+        qCWarning(vtInput) << "Wayland session without the GlobalShortcuts portal; the"
+                              " X11 hotkey only works while an Xwayland window is focused";
+    }
     return new X11HotkeyService(parent);
 }
 

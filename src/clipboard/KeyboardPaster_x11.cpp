@@ -1,11 +1,13 @@
 // X11 paste keystroke synthesis via the XTEST extension.
 //
-// NOTE (Wayland): XTEST only reaches X11 / XWayland clients. Synthesizing input
-// into native Wayland windows is intentionally restricted by the compositor.
-// TODO: add a Wayland path (e.g. wlroots virtual-keyboard protocol, or
-// ydotool/uinput) for native Wayland targets.
+// NOTE (Wayland): create() picks the RemoteDesktop portal backend instead
+// (KeyboardPaster_portal.cpp) — XTEST into Xwayland reaches native Wayland
+// windows only through a portal session GNOME re-confirms for every paste.
 
 #include "clipboard/KeyboardPaster.h"
+#include "clipboard/KeyboardPaster_portal.h"
+
+#include "core/XdgPortal.h"
 
 #include <X11/Xlib.h>
 #include <X11/extensions/XTest.h>
@@ -76,6 +78,9 @@ private:
 } // namespace
 
 std::unique_ptr<KeyboardPaster> KeyboardPaster::create() {
+    if (portal::waylandInput() &&
+        portal::hasInterface(QStringLiteral("org.freedesktop.portal.RemoteDesktop")))
+        return std::make_unique<PortalKeyboardPaster>();
     return std::make_unique<X11KeyboardPaster>();
 }
 

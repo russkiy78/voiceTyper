@@ -321,7 +321,9 @@ build_one() {
         cp "${ROOT_DIR}/voicetyper_${sz}x${sz}.png" \
            "$deb_dir/usr/share/icons/hicolor/${sz}x${sz}/apps/voicetyper.png"
     done
-    cat > "$deb_dir/usr/share/applications/voicetyper.desktop" <<'DESKTOP_EOF'
+    # Named after the app id the XDG portal knows us by (src/core/XdgPortal.h):
+    # GNOME only grants Wayland global shortcuts to an id backed by a .desktop.
+    cat > "$deb_dir/usr/share/applications/io.github.russkiy78.voiceTyper.desktop" <<'DESKTOP_EOF'
 [Desktop Entry]
 Type=Application
 Name=VoiceTyper

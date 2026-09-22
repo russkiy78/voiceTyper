@@ -140,9 +140,17 @@ elseif(APPLE)
         src/clipboard/KeyboardPaster_mac.cpp
         src/ui/MacWindowUtils.mm)
 else()
+    # X11, plus the XDG portal backends that create() picks on Wayland.
     list(APPEND VOICETYPER_SOURCES
+        src/core/XdgPortal.cpp
+        src/core/XdgPortal.h
         src/hotkey/HotkeyService_x11.cpp
-        src/clipboard/KeyboardPaster_x11.cpp)
+        src/hotkey/HotkeyService_portal.cpp
+        src/hotkey/HotkeyService_portal.h
+        src/hotkey/X11Keysym.h
+        src/clipboard/KeyboardPaster_x11.cpp
+        src/clipboard/KeyboardPaster_portal.cpp
+        src/clipboard/KeyboardPaster_portal.h)
 endif()
 
 # Embed the application icon into the .exe via a Windows resource script. The
@@ -212,6 +220,10 @@ else()
     endif()
     target_include_directories(voiceTyper PRIVATE ${X11_INCLUDE_DIR})
     target_link_libraries(voiceTyper PRIVATE ${X11_LIBRARIES} ${XTST_LIBRARY} ${XCB_LIBRARY})
+
+    # Wayland: global shortcuts and the paste keystroke go through XDG portals.
+    find_package(Qt6 REQUIRED COMPONENTS DBus)
+    target_link_libraries(voiceTyper PRIVATE Qt6::DBus)
 endif()
 
 # ----------------------------------------------------------------------------

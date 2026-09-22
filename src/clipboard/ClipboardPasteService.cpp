@@ -44,6 +44,7 @@ void ClipboardPasteService::pasteText(const QString& text) {
         return;
     }
 
+    paster_->prepare();
     QPointer<ClipboardPasteService> self(this);
 
     // 3. After a short gap, synthesize paste.

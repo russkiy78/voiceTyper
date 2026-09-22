@@ -12,7 +12,7 @@ account, no telemetry. Your audio never leaves the device.
 
 - **Stack:** C++20 · Qt 6 · CMake · whisper.cpp `v1.8.6` (bundled, statically linked)
 - **Compute:** CPU, **Vulkan**, **CUDA**, or **Metal** — picked at runtime from one binary
-- **Platforms:** Ubuntu/Linux (X11; Wayland via a GNOME shortcut), Windows, and
+- **Platforms:** Ubuntu/Linux (X11, and Wayland via XDG portals), Windows, and
   macOS (see [Platform notes](#platform-notes) — the global hotkey and paste
   keystroke both need Accessibility permission).
 
@@ -57,8 +57,8 @@ account, no telemetry. Your audio never leaves the device.
   CUDA variants, Qt bundled) and a Windows setup `.exe` (Qt + MSVC runtime + GPU
   DLLs bundled). See [Install](#install-prebuilt-packages).
 - 🪟➕🐧 **Single-instance IPC.** A second launch hands off to the running app —
-  `voiceTyper --toggle` toggles dictation, which is how the global hotkey is
-  wired up on Wayland (via a GNOME custom shortcut).
+  `voiceTyper --toggle` toggles dictation, e.g. from a custom desktop shortcut
+  on Wayland compositors without the GlobalShortcuts portal.
 
 ---
 
@@ -223,11 +223,13 @@ model on first run (Settings → **Download models**).
 **Common**
 - CMake ≥ 3.21
 - A C++20 compiler (GCC 11+, Clang 14+, or MSVC 2022)
-- Qt 6 with the **Core, Gui, Widgets, Multimedia, Network** modules
+- Qt 6 with the **Core, Gui, Widgets, Multimedia, Network** modules (plus
+  **DBus** on Linux)
 - Git + network on the first build (to fetch whisper.cpp), unless you provide a
   local checkout (see [whisper.cpp dependency](#whispercpp-dependency))
 
-**Ubuntu / Linux (X11)** — the global hotkey and paste-keystroke synthesis use X11:
+**Ubuntu / Linux** — the global hotkey and paste-keystroke synthesis use X11 (on
+Wayland: XDG portals over D-Bus, see [Platform notes](#wayland-linux)):
 ```bash
 sudo apt install build-essential cmake git \
     libx11-dev libxtst-dev libxcb1-dev \
@@ -401,13 +403,30 @@ the local `voiceTyper Dev` cert used for dev builds above.
 ## Platform notes
 
 ### Wayland (Linux)
-Native Wayland restricts global input by design, so `XGrabKey` hotkeys don't
-reach the app. Workaround: bind a **GNOME custom shortcut** to
-`voiceTyper --toggle`, which uses the single-instance IPC to start/stop the
-running app. Keystroke paste (XTEST) reaches X11 and XWayland windows; into
-**native-Wayland** windows synthetic input is restricted and the pasted text may
-not land — for fully reliable paste, run an **X11 session** for now. A native
-Wayland input backend (virtual-keyboard protocol / uinput) is a TODO.
+Wayland keeps global input with the compositor: an `XGrabKey` hotkey fires only
+while an Xwayland window is focused, and XTEST into Xwayland reaches native
+Wayland windows only through a portal session that GNOME re-confirms for every
+paste. On a Wayland session (Ubuntu 25.10+ has no Xorg session at all) the app
+therefore uses the XDG desktop portals instead:
+
+- **Global hotkeys** — `org.freedesktop.portal.GlobalShortcuts` (GNOME 48+,
+  KDE). On first start GNOME asks you to confirm the shortcuts; afterwards they
+  belong to GNOME (**Settings → Apps → voiceTyper**), so changing the hotkey in
+  voiceTyper's own Settings may not change the trigger GNOME already stored.
+- **Paste keystroke** — `org.freedesktop.portal.RemoteDesktop`, keyboard only.
+  The first paste asks to *allow remote interaction*; tick **Remember** and the
+  portal's restore token keeps later sessions (and runs) silent. GNOME shows a
+  remote-control indicator in the top bar for a few seconds around each paste.
+- **UI through Xwayland** — the app sets `QT_QPA_PLATFORM=xcb` for itself (unless
+  you set it) so the recording overlay can sit in the corner without taking
+  focus from the field you're dictating into.
+
+GNOME only grants portal access to an app id backed by an installed `.desktop`
+file. The `.deb` ships `io.github.russkiy78.voiceTyper.desktop`; a binary run
+from anywhere else writes one pointing at itself into
+`~/.local/share/applications/` (so it also appears in the app grid). On
+compositors without these portals, `voiceTyper --toggle` bound to a custom
+shortcut still works as the hotkey.
 
 ### macOS
 The architecture is cross-platform; macOS-specific pieces:
@@ -459,14 +478,14 @@ AppController            end-to-end coordinator (the dictation pipeline)
 │   └─ ComputeBackends      enumerate/resolve CPU · Vulkan · CUDA · Metal devices
 ├─ CommandEngine        phrase/regex command matching + text reconstruction
 ├─ ClipboardPasteService save clipboard → set text → paste → restore
-│   └─ KeyboardPaster        platform keystroke synth (X11 / Win / mac)
-├─ HotkeyService        global hotkey (X11 XGrabKey / Win RegisterHotKey / mac NSEvent monitors)
+│   └─ KeyboardPaster        platform keystroke synth (X11 / Wayland portal / Win / mac)
+├─ HotkeyService        global hotkey (X11 XGrabKey / Wayland portal / Win RegisterHotKey / mac NSEvent monitors)
 ├─ TextPostProcessor    NoOp now; HttpTextPostProcessor skeleton for future LLM cleanup
 ├─ SettingsStore        QSettings + commands.json
 └─ UI: OverlayWindow · TrayController · SettingsWindow
 
 main.cpp                single-instance QLocalServer IPC; `--toggle` drives the
-                        running app (the Wayland global-hotkey path)
+                        running app
 ```
 
 Source lives under `src/` grouped by module (`app/`, `audio/`, `asr/`, `commands/`,
@@ -478,7 +497,6 @@ Source lives under `src/` grouped by module (`app/`, `audio/`, `asr/`, `commands
 
 - macOS Accessibility-permission onboarding (prompt/instructions in the UI for
   the hotkey and paste keystroke, which silently no-op until granted).
-- Native **Wayland** input backend (virtual-keyboard protocol / uinput).
 - `regex` reconstruction parity with the phrase pass (whitespace-inserting regex).
 - Additional command actions (`submit`, `escape`, `delete_previous_word`, …).
 - `HttpTextPostProcessor`: real HTTPS LLM cleanup with graceful fallback.

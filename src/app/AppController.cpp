@@ -69,6 +69,7 @@ bool AppController::initialize() {
     connect(tray_, &TrayController::quitRequested, this, &AppController::quit);
 
     hotkey_ = HotkeyService::create(this);
+    hotkey_->setShortcutInfo(QStringLiteral("dictation"), tr("Start or stop dictation"));
     connect(hotkey_, &HotkeyService::activated, this,
             &AppController::toggleRecording);
     connect(hotkey_, &HotkeyService::registrationFailed, this,
@@ -79,6 +80,8 @@ bool AppController::initialize() {
             });
 
     translateHotkey_ = HotkeyService::create(this);
+    translateHotkey_->setShortcutInfo(QStringLiteral("translate"),
+                                      tr("Toggle translation to English"));
     connect(translateHotkey_, &HotkeyService::activated, this,
             &AppController::toggleTranslate);
     connect(translateHotkey_, &HotkeyService::registrationFailed, this,

@@ -21,10 +21,9 @@ Q_LOGGING_CATEGORY(vtUi, "voicetyper.ui")
 namespace {
 
 // Local-socket name for the single-instance IPC channel. A second launch
-// (`voiceTyper --toggle`, e.g. from a GNOME custom shortcut) connects here to
-// drive the running instance. This is how the global hotkey is delivered on
-// Wayland, where X11 key grabs never reach the app while a native-Wayland
-// window is focused.
+// (`voiceTyper --toggle`, e.g. from a desktop custom shortcut) connects here to
+// drive the running instance — a fallback trigger on Wayland compositors
+// without the GlobalShortcuts portal.
 QString ipcServerName() { return QStringLiteral("voiceTyper.ipc"); }
 
 // Hand a command to an already-running instance. Returns true if one accepted
@@ -44,7 +43,25 @@ bool forwardToRunningInstance(const QByteArray& command) {
 } // namespace
 
 int main(int argc, char* argv[]) {
+#if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
+    // On Wayland, run the UI through Xwayland: a native Wayland window can
+    // neither be placed in a screen corner nor kept from taking focus, so the
+    // recording overlay would steal focus from the field being dictated into.
+    // An explicit QT_QPA_PLATFORM still wins.
+    const bool forceXcb = qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM") &&
+                          !qEnvironmentVariableIsEmpty("WAYLAND_DISPLAY") &&
+                          !qEnvironmentVariableIsEmpty("DISPLAY");
+    if (forceXcb)
+        qputenv("QT_QPA_PLATFORM", "xcb");
+#endif
+
     QApplication app(argc, argv);
+
+#if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
+    // Don't pass the override on to programs we launch.
+    if (forceXcb)
+        qunsetenv("QT_QPA_PLATFORM");
+#endif
 
     QApplication::setOrganizationName(QStringLiteral("voiceTyper"));
     QApplication::setApplicationName(QStringLiteral("voiceTyper"));
@@ -84,7 +101,7 @@ int main(int argc, char* argv[]) {
         return 1;
 
     // Single-instance IPC server: an incoming "toggle" starts/stops recording,
-    // letting an external GNOME shortcut act as the global hotkey on Wayland.
+    // letting an external desktop shortcut act as the global hotkey.
     QLocalServer ipcServer;
     QLocalServer::removeServer(ipcServerName()); // clear a stale socket file
     if (!ipcServer.listen(ipcServerName()))
