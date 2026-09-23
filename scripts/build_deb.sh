@@ -50,6 +50,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 
 PROJECT_NAME="voiceTyper"
+# Package names in the control file must be lowercase. dpkg lowercases them
+# when it records an installed package, but apt compares a .deb's Provides with
+# the installed Conflicts as written, so a mixed-case 'voiceTyper' made apt
+# miss the conflict and dpkg then refused to switch variants.
+DEB_NAME="${PROJECT_NAME,,}"
 # Patch is the git commit count (matches VT_VERSION baked into the binary by
 # CMakeLists.txt) - NOT the raw ".0" patch literal in project(... VERSION x.y.0),
 # which bump-version.sh/.ps1 always leave at .0. VOICETYPER_VERSION lets CI (which
@@ -434,21 +439,21 @@ DESKTOP_EOF
     esac
 
     # --- Control file -------------------------------------------------------
-    # Provides/Conflicts/Replaces the virtual 'voiceTyper' so only one backend
+    # Provides/Conflicts/Replaces the virtual 'voicetyper' so only one backend
     # variant can be installed at a time (all ship /usr/bin/voiceTyper).
     local installed_size
     installed_size="$(du -sk "$deb_dir/usr" | cut -f1)"
     cat > "$deb_dir/DEBIAN/control" <<EOF
-Package: ${pkg}
+Package: ${DEB_NAME}-${variant}
 Version: ${VERSION}
 Section: utils
 Priority: optional
 Architecture: ${ARCH}
 Installed-Size: ${installed_size}
 Depends: ${deps}
-Provides: ${PROJECT_NAME}
-Conflicts: ${PROJECT_NAME}
-Replaces: ${PROJECT_NAME}
+Provides: ${DEB_NAME}
+Conflicts: ${DEB_NAME}
+Replaces: ${DEB_NAME}
 Maintainer: VoiceTyper Team
 Description: Local voice typing utility using Qt6 and whisper.cpp (${variant})
  A desktop application for voice-to-text transcription with local processing.
