@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "_comment": "Whisper initial prompts, keyed by recognition language code. Whisper treats the prompt as text spoken just before the recording and copies its punctuation, casing and spelling style. 'auto' is used when the language is auto-detected, so write it in the languages you actually dictate; an empty string disables the prompt. Translate-to-English uses 'en'. Keep prompts short and generic: words placed here (names, terms) become more likely to be recognized.",
+  "prompts": {
+    "auto": "",
+    "ru": "Добрый день. Сегодня обсудим план работы: что уже сделано, что осталось и когда мы закончим. Главное — не торопиться, правда?",
+    "en": "Good afternoon. Today we'll go over the plan: what's already done, what's left, and when we'll finish. The main thing is not to rush, right?",
+    "uk": "Добрий день. Сьогодні обговоримо план роботи: що вже зроблено, що залишилося і коли ми закінчимо. Головне — не поспішати, правда?",
+    "de": "Guten Tag. Heute besprechen wir den Plan: was schon erledigt ist, was noch fehlt und wann wir fertig sind. Das Wichtigste ist, nichts zu überstürzen, oder?",
+    "fr": "Bonjour. Aujourd'hui, nous allons revoir le plan : ce qui est déjà fait, ce qui reste à faire et quand nous aurons fini. L'essentiel, c'est de ne pas se précipiter, n'est-ce pas ?",
+    "es": "Buenas tardes. Hoy vamos a repasar el plan: lo que ya está hecho, lo que falta y cuándo vamos a terminar. Lo importante es no apresurarse, ¿verdad?",
+    "it": "Buongiorno. Oggi rivediamo il piano: cosa è già stato fatto, cosa manca ancora e quando finiremo. L'importante è non avere fretta, giusto?",
+    "pl": "Dzień dobry. Dzisiaj omówimy plan pracy: co już zrobiliśmy, co zostało i kiedy skończymy. Najważniejsze to się nie spieszyć, prawda?",
+    "pt": "Boa tarde. Hoje vamos rever o plano: o que já está feito, o que falta e quando vamos terminar. O importante é não ter pressa, certo?",
+    "nl": "Goedemiddag. Vandaag bespreken we het plan: wat al af is, wat er nog moet gebeuren en wanneer we klaar zijn. Het belangrijkste is dat we ons niet haasten, toch?"
+  }
+}

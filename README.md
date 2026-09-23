@@ -44,6 +44,14 @@ account, no telemetry. Your audio never leaves the device.
   speak, not just at the end. The stop word is stripped from the result.
 - 🌍 **Multilingual.** 16 recognition languages plus auto-detect, with an
   optional **translate-to-English** mode (Whisper's built-in translation).
+- ✍️ **Consistent punctuation.** A per-language *initial prompt* (editable
+  `prompts.json`) shows Whisper the punctuation and casing style to follow, so
+  it stops alternating between tidy prose and unpunctuated lowercase. See
+  [Punctuation style](#punctuation-style-initial-prompts).
+- 🤫 **Speech-only decoding.** A bundled Silero VAD cuts silence at the edges and
+  shortens long pauses before Whisper runs; a take with no speech is not decoded
+  at all, which removes the classic silence hallucinations ("Thanks for
+  watching!", "Продолжение следует...").
 - 📋 **Clipboard-safe paste.** The app saves your current clipboard, sets the
   recognized text, synthesizes the paste keystroke, then restores your previous
   clipboard a moment later — your copy buffer is left as it was.
@@ -69,7 +77,9 @@ account, no telemetry. Your audio never leaves the device.
 3. Recording starts; a small overlay appears in the corner with a timer + level meter.
 4. You speak.
 5. You stop by pressing the hotkey again **or** by saying a stop word (default **"stop"**).
-6. The audio is transcribed locally by whisper.cpp (on CPU or your selected GPU).
+6. A voice-activity detector keeps only the speech (pauses longer than a second
+   are shortened), and whisper.cpp transcribes it locally (on CPU or your
+   selected GPU), guided by the language's [initial prompt](#punctuation-style-initial-prompts).
 7. Voice **commands** (e.g. "new line" → newline) are applied to the text.
 8. The result is placed on the clipboard, the paste shortcut is synthesized
    (`Ctrl+V` / `Cmd+V`), and your previous clipboard is restored shortly after.
@@ -146,6 +156,52 @@ not discarded.
 pass over the most recent audio tail (default **4 s**) and ends recording when a
 stop phrase is heard. The stop phrase is removed from the final text, and audio
 after it is dropped. Tunable (or disabled) under **Settings → Voice stop detection**.
+
+---
+
+## Punctuation style (initial prompts)
+
+Whisper copies the punctuation, casing and spelling style of the text it sees
+right before the audio. Without that context it picks a style per recording —
+sometimes clean sentences, sometimes lowercase without a single comma. voiceTyper
+passes a short, well-punctuated *initial prompt* in the recognition language to
+keep the style stable.
+
+Prompts live in `prompts.json` next to `commands.json` in your app config dir
+(Linux: `~/.config/voiceTyper/voiceTyper/prompts.json`). It is created from the
+bundled `config/prompts.default.json` on first use and re-read on every
+dictation, so edits apply immediately:
+
+```json
+{
+  "prompts": {
+    "auto": "Привет. Сегодня разберём pull request и обсудим, как делать deploy.",
+    "ru": "Добрый день. Сегодня обсудим план работы: что уже сделано, что осталось и когда мы закончим. Главное — не торопиться, правда?",
+    "en": "Good afternoon. Today we'll go over the plan: what's already done, what's left, and when we'll finish. The main thing is not to rush, right?"
+  }
+}
+```
+
+- Keys are recognition language codes. Defaults ship for `ru en uk de fr es it
+  pl pt nl`; languages without an entry get no prompt.
+- `auto` is used when the language is auto-detected. It is **empty by default**
+  because no single prompt suits every language — write it in the languages you
+  actually dictate (e.g. Russian with English terms, as above, keeps those terms
+  in Latin script). Language detection itself ignores the prompt.
+- Translate-to-English always uses `en`.
+- An empty string disables the prompt for that language. Keys missing from your
+  file fall back to the bundled defaults.
+- Keep prompts short and generic: names and terms placed here become more likely
+  to be recognized — useful for your own vocabulary, distracting otherwise.
+- The prompt applies to the final pass only, not to the stop-word detection loop.
+  If Whisper returns (part of) the prompt instead of speech, that output is
+  discarded rather than pasted — but only when it is longer than anyone could
+  say in the detected speech time, so dictating a phrase that matches the
+  prompt word for word still works.
+
+Silence handling uses the bundled Silero VAD model (`ggml-silero-v6.2.0.bin`,
+MIT, from [ggml-org/whisper-vad](https://huggingface.co/ggml-org/whisper-vad)).
+If it is missing, recordings are transcribed whole, as before.
 
 ---
 
@@ -477,14 +533,15 @@ AppController            end-to-end coordinator (the dictation pipeline)
 ├─ RecordingController   recording state machine
 │   ├─ AudioRecorder         QAudioSource capture → 16 kHz mono float
 │   └─ CommandDetectionLoop  live "stop word" detection while recording
-├─ WhisperAsrEngine     whisper.cpp wrapper (IAsrEngine; NullAsrEngine fallback)
+├─ WhisperAsrEngine     whisper.cpp wrapper (IAsrEngine; NullAsrEngine fallback);
+│   │                        Silero VAD speech extraction + initial prompt
 │   └─ ComputeBackends      enumerate/resolve CPU · Vulkan · CUDA · Metal devices
 ├─ CommandEngine        phrase/regex command matching + text reconstruction
 ├─ ClipboardPasteService save clipboard → set text → paste → restore
 │   └─ KeyboardPaster        platform keystroke synth (X11 / Wayland portal / Win / mac)
 ├─ HotkeyService        global hotkey (X11 XGrabKey / Wayland portal / Win RegisterHotKey / mac NSEvent monitors)
 ├─ TextPostProcessor    NoOp now; HttpTextPostProcessor skeleton for future LLM cleanup
-├─ SettingsStore        QSettings + commands.json
+├─ SettingsStore        QSettings + commands.json + prompts.json
 └─ UI: OverlayWindow · TrayController · SettingsWindow
 
 main.cpp                single-instance QLocalServer IPC; `--toggle` drives the

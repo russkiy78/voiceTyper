@@ -176,7 +176,8 @@ void AppController::buildAsrEngine() {
     settings_->setLoadAttempt(lastModelPath_, rb.useGpu);
 
     auto engine = std::make_unique<WhisperAsrEngine>(
-        lastModelPath_.toStdString(), rb.useGpu, rb.gpuDevice, false, rb.label);
+        lastModelPath_.toStdString(), rb.useGpu, rb.gpuDevice, false, rb.label,
+        SettingsStore::vadModelPath().toStdString());
 
     settings_->clearLoadAttempt();
 
@@ -380,6 +381,11 @@ void AppController::startTranscription() {
     opt.language = settings_->language().toStdString();
     opt.translate = settings_->translate();
     opt.threads = settings_->threads();
+    // Final pass only: the command-detection loop matches bare phrases, and a
+    // prompt there would just be one more thing to echo on a silent window.
+    opt.initialPrompt = settings_->initialPrompt(settings_->language(),
+                                                 opt.translate)
+                            .toStdString();
 
     if (worker_.joinable())
         worker_.join();

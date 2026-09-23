@@ -113,8 +113,10 @@ mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$BIN" "$APP_DIR/Contents/MacOS/${PROJECT_NAME}"
 # Resources/, not MacOS/: codesign expects Contents/MacOS/ to hold only
 # executables and rejects the bundle if data files sit there too (see
-# SettingsStore::bundledDefaultCommandsPath(), which knows to look here).
+# bundledFilePath() in SettingsStore.cpp, which knows to look here).
 cp "$ROOT_DIR/config/commands.default.json" "$APP_DIR/Contents/Resources/commands.default.json"
+cp "$ROOT_DIR/config/prompts.default.json" "$APP_DIR/Contents/Resources/prompts.default.json"
+cp "$ROOT_DIR/resources/ggml-silero-v6.2.0.bin" "$APP_DIR/Contents/Resources/ggml-silero-v6.2.0.bin"
 
 # ---------------------------------------------------------------------------
 # 3. App icon (.icns), generated from generate_icon.py if Pillow is available.

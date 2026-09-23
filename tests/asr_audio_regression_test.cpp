@@ -1,6 +1,7 @@
 // Integration test: requires a model and the upstream samples/jfk.mp3 decoded
 // to mono 16 kHz float32 PCM. Link WhisperAsrEngine, ComputeBackends and their
-// Qt/whisper dependencies. Usage: test MODEL JFK.f32 [cuda|cpu]
+// Qt/whisper dependencies (plus InitialPrompts and SpeechCompaction).
+// Usage: test MODEL JFK.f32 [cuda|cpu] [VAD_MODEL]
 #include "asr/WhisperAsrEngine.h"
 #include "asr/ComputeBackends.h"
 #include "core/Logging.h"
@@ -10,6 +11,7 @@
 #include <cstring>
 #include <fstream>
 #include <iterator>
+#include <random>
 
 Q_LOGGING_CATEGORY(vtAsr, "voicetyper.asr")
 
@@ -19,8 +21,9 @@ int main(int argc, char** argv) {
     const auto backend = vt::resolveBackend(argc > 3 ? argv[3] : "cpu");
     if (argc > 3 && std::strcmp(argv[3], "cuda") == 0 && !backend.useGpu)
         return 2;
+    const bool withVad = argc > 4;
     vt::WhisperAsrEngine engine(argv[1], backend.useGpu, backend.gpuDevice,
-                               false, backend.label);
+                               false, backend.label, withVad ? argv[4] : "");
     if (!engine.isReady() || engine.gpuInitFailed())
         return 3;
     std::ifstream file(argv[2], std::ios::binary);
@@ -64,5 +67,41 @@ int main(int argc, char** argv) {
         if (!result.ok || !result.text.empty())
             return 8;
     }
-    std::puts("PASS: short speech, trailing pauses, shared context and silence");
+
+    // A punctuation prompt must not change what is recognized.
+    {
+        vt::AudioBuffer audio;
+        audio.samples.assign(samples.begin(), samples.begin() + 11 * 16000);
+        vt::TranscriptionOptions prompted;
+        prompted.language = "en";
+        prompted.threads = 4;
+        prompted.initialPrompt =
+            "Good afternoon. Today we'll go over the plan: what's already done, "
+            "what's left, and when we'll finish. The main thing is not to rush, right?";
+        const auto result = engine.transcribe(audio, prompted);
+        if (!result.ok || result.text.find("my fellow Americans") == std::string::npos ||
+            result.text.find("your country") == std::string::npos)
+            return 9;
+
+        // Noise with no speech: the VAD keeps it from whisper entirely, so
+        // neither a hallucinated phrase nor the prompt comes back.
+        if (withVad) {
+            vt::AudioBuffer noise;
+            std::mt19937 rng(42);
+            std::normal_distribution<float> hiss(0.0f, 0.01f);
+            for (int i = 0; i < 5 * 16000; ++i)
+                noise.samples.push_back(hiss(rng));
+            for (const bool usePrompt : {false, true}) {
+                vt::TranscriptionOptions o = prompted;
+                if (!usePrompt)
+                    o.initialPrompt.clear();
+                const auto r = engine.transcribe(noise, o);
+                if (!r.ok || !r.text.empty())
+                    return 10;
+            }
+        }
+    }
+    std::puts(withVad
+                  ? "PASS: short speech, trailing pauses, shared context, silence, prompt, VAD noise"
+                  : "PASS: short speech, trailing pauses, shared context, silence and prompt");
 }

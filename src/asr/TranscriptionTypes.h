@@ -10,6 +10,10 @@ struct TranscriptionOptions {
     std::string language = "auto"; // ISO code ("ru", "en", ...) or "auto"
     bool translate = false;        // translate to English instead of transcribe
     int threads = 0;               // 0 => engine picks a sensible default
+    // Text whisper treats as preceding the audio (see prompts.json); steers
+    // punctuation and casing. Empty => none. Output that merely repeats it is
+    // discarded.
+    std::string initialPrompt;
     // Hint for short, latency-sensitive passes (command detection loop).
     bool fastMode = false;
     // Cooperative cancel. When set and flipped to true mid-flight, the engine

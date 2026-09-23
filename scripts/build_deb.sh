@@ -79,6 +79,8 @@ fi
 # Install layout (inside each package):
 #   /usr/lib/voiceTyper/bin/voiceTyper           real binary
 #   /usr/lib/voiceTyper/bin/commands.default.json
+#   /usr/lib/voiceTyper/bin/prompts.default.json
+#   /usr/lib/voiceTyper/bin/ggml-silero-v6.2.0.bin  Silero VAD model
 #   /usr/lib/voiceTyper/bin/qt.conf              points Qt to bundled libs/plugins
 #   /usr/lib/voiceTyper/lib/libQt6*.so.*         bundled Qt 6.11.1 + ICU + FFmpeg
 #   /usr/lib/voiceTyper/lib/libcudart.so.*, etc  bundled CUDA runtime (cuda/all only)

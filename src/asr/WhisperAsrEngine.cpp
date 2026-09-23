@@ -1,5 +1,7 @@
 #include "asr/WhisperAsrEngine.h"
 
+#include "asr/InitialPrompts.h"
+#include "asr/SpeechCompaction.h"
 #include "core/Logging.h"
 
 #include <whisper.h>
@@ -65,6 +67,13 @@ int pickThreadCount(int requested) {
     // Capped at 8 to bound scheduler overhead on large machines.
     return std::clamp(physicalCoreCount(), 1, 8);
 }
+
+// VAD shaping (see compactSpeech): silence kept around the speech, and the
+// longest pause kept between phrases. A second of pause still reads as a
+// sentence break to whisper; longer thinking pauses add nothing but a chance
+// to hallucinate.
+constexpr double kSpeechEdgePadSeconds = 0.25;
+constexpr double kMaxPauseSeconds = 1.0;
 
 std::string trimmed(std::string s) {
     const auto notSpace = [](unsigned char c) { return !std::isspace(c); };
@@ -180,7 +189,8 @@ void WhisperAsrEngine::installDiagnostics() {
 
 WhisperAsrEngine::WhisperAsrEngine(const std::string& modelPath, bool useGpu,
                                    int gpuDevice, bool flashAttn,
-                                   std::string backendLabel)
+                                   std::string backendLabel,
+                                   const std::string& vadModelPath)
     : modelPath_(modelPath), backendLabel_(std::move(backendLabel)) {
     if (modelPath.empty()) {
         qCWarning(vtAsr) << "WhisperAsrEngine: empty model path";
@@ -215,6 +225,21 @@ WhisperAsrEngine::WhisperAsrEngine(const std::string& modelPath, bool useGpu,
     else
         qCInfo(vtAsr) << "Loaded whisper model:"
                       << QString::fromStdString(modelPath);
+
+    // The VAD is tiny and runs on the CPU: a GPU context for it would add a
+    // second device init (and its crash surface) for no measurable gain.
+    if (ctx_ && !vadModelPath.empty()) {
+        whisper_vad_context_params vparams = whisper_vad_default_context_params();
+        vparams.n_threads = std::min(pickThreadCount(0), 4);
+        vparams.use_gpu = false;
+        vad_ = whisper_vad_init_from_file_with_params(vadModelPath.c_str(), vparams);
+    }
+    if (vad_)
+        qCInfo(vtAsr) << "Loaded VAD model:" << QString::fromStdString(vadModelPath);
+    else if (ctx_)
+        qCWarning(vtAsr) << "No VAD model loaded"
+                         << QString::fromStdString(vadModelPath)
+                         << "- transcribing whole recordings, silence included";
 }
 
 void WhisperAsrEngine::setOnFirstGpuInferenceDone(std::function<void()> cb) {
@@ -224,6 +249,10 @@ void WhisperAsrEngine::setOnFirstGpuInferenceDone(std::function<void()> cb) {
 
 WhisperAsrEngine::~WhisperAsrEngine() {
     std::lock_guard<std::mutex> lock(mutex_);
+    if (vad_) {
+        whisper_vad_free(vad_);
+        vad_ = nullptr;
+    }
     if (ctx_) {
         whisper_free(ctx_);
         ctx_ = nullptr;
@@ -267,6 +296,20 @@ TranscriptionResult WhisperAsrEngine::transcribe(
         return result;
     }
 
+    // Only speech reaches whisper. A recording (or detection window) without
+    // any is not decoded at all: whisper would invent a phrase for the noise.
+    std::vector<float> speech;
+    if (vad_) {
+        speech = extractSpeech(audio.samples, audio.sampleRate);
+        if (speech.empty()) {
+            qCDebug(vtAsr) << "transcribe: no speech in" << audio.durationSeconds()
+                           << "s of audio";
+            result.ok = true;
+            return result;
+        }
+    }
+    const std::vector<float>& samples = vad_ ? speech : audio.samples;
+
     whisper_full_params params =
         whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
     params.print_progress = false;
@@ -283,6 +326,13 @@ TranscriptionResult WhisperAsrEngine::transcribe(
         params.language = "auto";
     else
         params.language = options.language.c_str();
+
+    if (!options.initialPrompt.empty()) {
+        params.initial_prompt = options.initialPrompt.c_str();
+        // Every 30 s decode window gets it, not just the first, so a long
+        // dictation keeps the same style throughout.
+        params.carry_initial_prompt = true;
+    }
 
     if (options.fastMode) {
         // Latency-focused pass for the command-detection loop.
@@ -307,16 +357,19 @@ TranscriptionResult WhisperAsrEngine::transcribe(
     // command detection shares the same model and must recognize real speech.
     params.audio_ctx = 0;
     const double audioSeconds = audio.durationSeconds();
+    const double speechSeconds =
+        static_cast<double>(samples.size()) / audio.sampleRate;
     const int modelMaxCtx = whisper_model_n_audio_ctx(ctx_);
 
-    qCDebug(vtAsr) << "transcribe: audio" << audioSeconds << "s, threads"
+    qCDebug(vtAsr) << "transcribe: audio" << audioSeconds << "s, decoding"
+                   << speechSeconds << "s, threads"
                    << params.n_threads << ", audio_ctx" << params.audio_ctx
                    << "/" << modelMaxCtx;
 
-    dumpWavDebug(audio.samples, audio.sampleRate);
+    dumpWavDebug(samples, audio.sampleRate);
 
-    const int rc = whisper_full(ctx_, params, audio.samples.data(),
-                                static_cast<int>(audio.samples.size()));
+    const int rc = whisper_full(ctx_, params, samples.data(),
+                                static_cast<int>(samples.size()));
 
     // whisper_full() returned — the GPU didn't abort on this call. Clear the
     // first-inference crash breadcrumb (set by AppController after GPU init).
@@ -345,10 +398,44 @@ TranscriptionResult WhisperAsrEngine::transcribe(
     }
 
     result.text = trimmed(std::move(text));
+    if (looksLikePromptEcho(result.text, options.initialPrompt, speechSeconds)) {
+        qCInfo(vtAsr) << "Discarded output repeating the initial prompt:"
+                      << QString::fromStdString(result.text);
+        result.text.clear();
+    }
     result.ok = true;
     result.durationSeconds =
         std::chrono::duration<double>(clock::now() - t0).count();
     return result;
+}
+
+std::vector<float> WhisperAsrEngine::extractSpeech(
+    const std::vector<float>& samples, int sampleRate) {
+    whisper_vad_segments* segments = whisper_vad_segments_from_samples(
+        vad_, whisper_vad_default_params(), samples.data(),
+        static_cast<int>(samples.size()));
+    if (!segments) {
+        qCWarning(vtAsr) << "VAD failed; transcribing the whole recording";
+        return samples;
+    }
+
+    // Segment bounds come in centiseconds.
+    const double samplesPerCs = sampleRate / 100.0;
+    std::vector<SpeechSpan> spans;
+    const int n = whisper_vad_segments_n_segments(segments);
+    for (int i = 0; i < n; ++i) {
+        spans.push_back(
+            {static_cast<int>(std::lround(
+                 whisper_vad_segments_get_segment_t0(segments, i) * samplesPerCs)),
+             static_cast<int>(std::lround(
+                 whisper_vad_segments_get_segment_t1(segments, i) * samplesPerCs))});
+    }
+    whisper_vad_free_segments(segments);
+
+    return compactSpeech(
+        samples, std::move(spans),
+        static_cast<int>(std::lround(kSpeechEdgePadSeconds * sampleRate)),
+        static_cast<int>(std::lround(kMaxPauseSeconds * sampleRate)));
 }
 
 } // namespace vt

@@ -1,5 +1,6 @@
 #include "settings/SettingsStore.h"
 
+#include "asr/InitialPrompts.h"
 #include "core/Logging.h"
 
 #include <QCoreApplication>
@@ -33,6 +34,63 @@ constexpr auto kCdWindow = "commandDetection/windowSeconds";
 constexpr auto kPpEnabled = "postProcess/enabled";
 constexpr auto kPpEndpoint = "postProcess/endpoint";
 } // namespace keys
+
+constexpr auto kVadModelFile = "ggml-silero-v6.2.0.bin";
+
+// Locates a data file shipped with the app. Checked in order: next to the
+// binary (dev/Linux/Windows builds), then Contents/Resources/ (packaged macOS
+// .app — codesign expects Contents/MacOS/ to hold only executables, so
+// packaging places data files in Resources/ instead; see
+// scripts/package-macos.sh). Falls back to `devPath`, relative to the source
+// tree, for dev runs.
+QString bundledFilePath(const QString& fileName, const QString& devPath) {
+    const QDir appDir(QCoreApplication::applicationDirPath());
+    const QString next = appDir.filePath(fileName);
+    if (QFileInfo::exists(next))
+        return next;
+    const QString resourcesNext =
+        appDir.filePath(QStringLiteral("../Resources/") + fileName);
+    if (QFileInfo::exists(resourcesNext))
+        return resourcesNext;
+    return devPath;
+}
+
+QString bundledDefaultCommandsPath() {
+    return bundledFilePath(QStringLiteral("commands.default.json"),
+                           QStringLiteral("config/commands.default.json"));
+}
+
+QString bundledDefaultPromptsPath() {
+    return bundledFilePath(QStringLiteral("prompts.default.json"),
+                           QStringLiteral("config/prompts.default.json"));
+}
+
+// Reads the user's copy of a config file, first copying the bundled default
+// into place when there is none yet. Returns an empty string when neither can
+// be read.
+QString readOrMaterialize(const QString& path, const QString& bundledPath) {
+    if (!QFileInfo::exists(path)) {
+        QFile def(bundledPath);
+        if (!def.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            qCWarning(vtApp) << "No" << path << "and no bundled default at"
+                             << bundledPath;
+            return QString();
+        }
+        const QByteArray data = def.readAll();
+        QFile out(path);
+        if (out.open(QIODevice::WriteOnly | QIODevice::Text))
+            out.write(data);
+        return QString::fromUtf8(data);
+    }
+
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        qCWarning(vtApp) << "Failed to open config" << path;
+        return QString();
+    }
+    return QString::fromUtf8(f.readAll());
+}
+
 } // namespace
 
 SettingsStore::SettingsStore(QObject* parent) : QObject(parent) {
@@ -192,51 +250,40 @@ QString SettingsStore::commandsConfigPath() const {
     return QDir(configDir()).filePath("commands.json");
 }
 
-QString SettingsStore::bundledDefaultCommandsPath() const {
-    // Checked in order: next to the binary (dev/Linux/Windows builds), then
-    // Contents/Resources/ (packaged macOS .app — codesign expects
-    // Contents/MacOS/ to hold only executables, so packaging places data
-    // files in Resources/ instead; see scripts/package-macos.sh).
-    const QDir appDir(QCoreApplication::applicationDirPath());
-    const QString next = appDir.filePath("commands.default.json");
-    if (QFileInfo::exists(next))
-        return next;
-    const QString resourcesNext =
-        appDir.filePath("../Resources/commands.default.json");
-    if (QFileInfo::exists(resourcesNext))
-        return resourcesNext;
-    // Fallback to a source-tree relative path for dev runs.
-    return QStringLiteral("config/commands.default.json");
+QString SettingsStore::loadCommandsJson() const {
+    const QString json =
+        readOrMaterialize(commandsConfigPath(), bundledDefaultCommandsPath());
+    return json.isEmpty() ? QStringLiteral("{\n  \"commands\": []\n}\n") : json;
 }
 
-QString SettingsStore::loadCommandsJson() const {
-    const QString path = commandsConfigPath();
+QString SettingsStore::promptsConfigPath() const {
+    return QDir(configDir()).filePath("prompts.json");
+}
 
-    if (!QFileInfo::exists(path)) {
-        // Materialize the bundled default on first run.
-        QFile def(bundledDefaultCommandsPath());
-        if (def.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            const QByteArray data = def.readAll();
-            def.close();
-            QFile out(path);
-            if (out.open(QIODevice::WriteOnly | QIODevice::Text)) {
-                out.write(data);
-                out.close();
-            }
-            return QString::fromUtf8(data);
-        }
-        qCWarning(vtApp) << "No commands.json and no bundled default found";
-        return QStringLiteral("{\n  \"commands\": []\n}\n");
-    }
+QString SettingsStore::initialPrompt(const QString& language,
+                                     bool translate) const {
+    InitialPrompts bundled;
+    InitialPrompts user;
+    QString error;
 
-    QFile f(path);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        qCWarning(vtApp) << "Failed to open commands config" << path;
-        return QStringLiteral("{\n  \"commands\": []\n}\n");
-    }
-    const QString contents = QString::fromUtf8(f.readAll());
-    f.close();
-    return contents;
+    QFile def(bundledDefaultPromptsPath());
+    if (def.open(QIODevice::ReadOnly | QIODevice::Text) &&
+        !parseInitialPrompts(QString::fromUtf8(def.readAll()), &bundled, &error))
+        qCWarning(vtApp) << "Bundled prompts.default.json:" << error;
+
+    const QString userJson =
+        readOrMaterialize(promptsConfigPath(), bundledDefaultPromptsPath());
+    if (!userJson.isEmpty() && !parseInitialPrompts(userJson, &user, &error))
+        qCWarning(vtApp) << promptsConfigPath() << "ignored:" << error;
+
+    return pickInitialPrompt(bundled, user, language, translate);
+}
+
+QString SettingsStore::vadModelPath() {
+    const QString path = bundledFilePath(
+        QLatin1String(kVadModelFile),
+        QStringLiteral("resources/") + QLatin1String(kVadModelFile));
+    return QFileInfo::exists(path) ? path : QString();
 }
 
 bool SettingsStore::saveCommandsJson(const QString& json, QString* error) {
@@ -258,7 +305,7 @@ QString SettingsStore::autodetectModelPath() {
     searchDirs << QDir(QCoreApplication::applicationDirPath()).filePath("models")
                << QCoreApplication::applicationDirPath()
                // Packaged macOS .app: models live in Contents/Resources/models
-               // (see bundledDefaultCommandsPath() for why not Contents/MacOS/).
+               // (see bundledFilePath() for why not Contents/MacOS/).
                << QDir(QCoreApplication::applicationDirPath())
                       .filePath("../Resources/models")
                << QDir(QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation))
@@ -270,9 +317,12 @@ QString SettingsStore::autodetectModelPath() {
         QDir d(dir);
         if (!d.exists())
             continue;
-        const QStringList found = d.entryList(patterns, QDir::Files, QDir::Size);
-        if (!found.isEmpty())
-            return d.filePath(found.first());
+        for (const QString& name : d.entryList(patterns, QDir::Files, QDir::Size)) {
+            // The bundled VAD model sits next to the binary too, but it can't
+            // transcribe anything.
+            if (!name.startsWith(QLatin1String("ggml-silero")))
+                return d.filePath(name);
+        }
     }
     return {};
 }

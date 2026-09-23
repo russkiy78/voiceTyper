@@ -5,8 +5,10 @@
 #include <functional>
 #include <mutex>
 #include <string>
+#include <vector>
 
-struct whisper_context; // fwd-decl from whisper.cpp
+struct whisper_context;     // fwd-decl from whisper.cpp
+struct whisper_vad_context; // fwd-decl from whisper.cpp
 
 namespace vt {
 
@@ -21,8 +23,12 @@ public:
     // (upstream flipped its default to on in v1.8.0); enabling it mainly speeds
     // up the GPU encoder but its support/numerics vary by backend, so it is kept
     // an explicit, separately-toggleable knob for A/B benchmarking.
+    // vadModelPath is a Silero VAD ggml model (run on CPU); when it loads, only
+    // detected speech reaches whisper and audio without speech is not decoded.
+    // Empty or unloadable => the whole recording is transcribed as before.
     WhisperAsrEngine(const std::string& modelPath, bool useGpu, int gpuDevice,
-                     bool flashAttn = false, std::string backendLabel = {});
+                     bool flashAttn = false, std::string backendLabel = {},
+                     const std::string& vadModelPath = {});
     ~WhisperAsrEngine() override;
 
     // Route ggml/whisper diagnostics into the app's file-backed Qt log: the
@@ -56,7 +62,13 @@ public:
     void setOnFirstGpuInferenceDone(std::function<void()> cb);
 
 private:
+    // Speech-only audio for whisper (see compactSpeech). Empty when the VAD
+    // found no speech. Caller holds mutex_.
+    std::vector<float> extractSpeech(const std::vector<float>& samples,
+                                     int sampleRate);
+
     whisper_context* ctx_ = nullptr;
+    whisper_vad_context* vad_ = nullptr;
     std::string modelPath_;
     std::string backendLabel_;
     bool gpuInitFailed_ = false;

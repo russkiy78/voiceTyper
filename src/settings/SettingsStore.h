@@ -5,11 +5,13 @@
 
 namespace vt {
 
-// Persists user configuration via QSettings and owns the on-disk commands JSON.
+// Persists user configuration via QSettings and owns the on-disk commands and
+// initial-prompts JSON files.
 //
 // QSettings location follows QCoreApplication::organizationName/applicationName
-// (set in main()). The commands config lives as a standalone JSON file under the
-// app config directory so the user (or the Settings UI) can edit it directly.
+// (set in main()). The commands and prompts configs live as standalone JSON
+// files under the app config directory so the user (or the Settings UI) can
+// edit them directly.
 class SettingsStore : public QObject {
     Q_OBJECT
 public:
@@ -93,14 +95,22 @@ public:
     // Writes the commands JSON to disk. Returns false and sets *error on failure.
     bool saveCommandsJson(const QString& json, QString* error = nullptr);
 
+    // --- Initial prompts file (prompts.json) -----------------------------
+    QString promptsConfigPath() const;
+
+    // Whisper initial prompt for a transcription in `language` (see
+    // InitialPrompts). Re-reads prompts.json on every call so edits apply to
+    // the next dictation; the bundled default is materialized on first run.
+    QString initialPrompt(const QString& language, bool translate) const;
+
+    // Bundled Silero VAD model, or empty when the install lacks it.
+    static QString vadModelPath();
+
     // Best-effort scan for a bundled model if none is configured.
     static QString autodetectModelPath();
 
 signals:
     void changed();
-
-private:
-    QString bundledDefaultCommandsPath() const;
 };
 
 } // namespace vt

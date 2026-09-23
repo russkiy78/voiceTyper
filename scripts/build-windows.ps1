@@ -665,6 +665,8 @@ foreach ($job in $jobs) {
 
     Copy-Item $exe -Destination $stage -Force
     Copy-Item (Join-Path $Root "config\commands.default.json") -Destination $stage -Force
+    Copy-Item (Join-Path $Root "config\prompts.default.json") -Destination $stage -Force
+    Copy-Item (Join-Path $Root "resources\ggml-silero-v6.2.0.bin") -Destination $stage -Force
     $stageExe = Join-Path $stage "voiceTyper.exe"
     Invoke-RuntimeDeploy -TargetExe $stageExe -Windeployqt $windeployqt -BuildType $BuildType `
         -CudaCompiler $(if ($job.Cuda) { $cudaCompiler } else { $null }) `

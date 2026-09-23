@@ -81,6 +81,8 @@ set(VOICETYPER_SOURCES
     src/asr/NullAsrEngine.h
     src/asr/ComputeBackends.cpp
     src/asr/ComputeBackends.h
+    src/asr/InitialPrompts.cpp
+    src/asr/InitialPrompts.h
 
     src/commands/CommandTypes.h
     src/commands/CommandConfig.cpp
@@ -123,6 +125,8 @@ set(VOICETYPER_SOURCES
 # Whisper-backed engine only when the backend is enabled.
 if(VOICETYPER_WITH_WHISPER)
     list(APPEND VOICETYPER_SOURCES
+        src/asr/SpeechCompaction.cpp
+        src/asr/SpeechCompaction.h
         src/asr/WhisperAsrEngine.cpp
         src/asr/WhisperAsrEngine.h)
 endif()
@@ -229,11 +233,17 @@ endif()
 # ----------------------------------------------------------------------------
 # Bundle default resources next to the binary (config + models dir layout)
 # ----------------------------------------------------------------------------
+set(VT_BUNDLED_DATA_FILES
+    "${CMAKE_SOURCE_DIR}/config/commands.default.json"
+    "${CMAKE_SOURCE_DIR}/config/prompts.default.json"
+    # Silero VAD (MIT), from huggingface.co/ggml-org/whisper-vad.
+    "${CMAKE_SOURCE_DIR}/resources/ggml-silero-v6.2.0.bin")
+
 add_custom_command(TARGET voiceTyper POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${CMAKE_SOURCE_DIR}/config/commands.default.json"
-            "$<TARGET_FILE_DIR:voiceTyper>/commands.default.json"
-    COMMENT "Copying default command config next to the binary")
+            ${VT_BUNDLED_DATA_FILES}
+            "$<TARGET_FILE_DIR:voiceTyper>/"
+    COMMENT "Copying default configs and the VAD model next to the binary")
 
 # ----------------------------------------------------------------------------
 # macOS: keep the dev .app bundle's binary in sync and codesigned.
@@ -262,4 +272,4 @@ if(APPLE)
 endif()
 
 install(TARGETS voiceTyper RUNTIME DESTINATION bin)
-install(FILES config/commands.default.json DESTINATION bin)
+install(FILES ${VT_BUNDLED_DATA_FILES} DESTINATION bin)
