@@ -59,15 +59,17 @@ void CommandDetectionLoop::tick() {
 
     inFlight_ = true;
     const QString lang = language_;
+    const bool useVad = useVad_;
     IAsrEngine* asr = asr_;
     const CommandEngine* commands = commands_;
     abortFlag_ = std::make_shared<std::atomic<bool>>(false);
     auto abortFlag = abortFlag_;
 
-    worker_ = std::thread([this, asr, commands, lang, abortFlag,
+    worker_ = std::thread([this, asr, commands, lang, useVad, abortFlag,
                            tail = std::move(tail)]() {
         TranscriptionOptions opt;
         opt.language = lang.toStdString();
+        opt.useVad = useVad;
         opt.fastMode = true;
         opt.abortFlag = abortFlag;
         const TranscriptionResult res = asr->transcribe(tail, opt);

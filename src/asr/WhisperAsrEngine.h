@@ -24,7 +24,8 @@ public:
     // up the GPU encoder but its support/numerics vary by backend, so it is kept
     // an explicit, separately-toggleable knob for A/B benchmarking.
     // vadModelPath is a Silero VAD ggml model (run on CPU); when it loads, only
-    // detected speech reaches whisper and audio without speech is not decoded.
+    // detected speech reaches whisper and audio without speech is not decoded,
+    // unless a pass sets TranscriptionOptions::useVad = false.
     // Empty or unloadable => the whole recording is transcribed as before.
     WhisperAsrEngine(const std::string& modelPath, bool useGpu, int gpuDevice,
                      bool flashAttn = false, std::string backendLabel = {},

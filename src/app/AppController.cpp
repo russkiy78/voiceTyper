@@ -381,6 +381,7 @@ void AppController::startTranscription() {
     opt.language = settings_->language().toStdString();
     opt.translate = settings_->translate();
     opt.threads = settings_->threads();
+    opt.useVad = settings_->vadEnabled();
     // Final pass only: the command-detection loop matches bare phrases, and a
     // prompt there would just be one more thing to echo on a silent window.
     opt.initialPrompt = settings_->initialPrompt(settings_->language(),

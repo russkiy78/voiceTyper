@@ -38,6 +38,7 @@ void RecordingController::startRecording() {
     if (settings_ && settings_->commandDetectionEnabled() && asr_ &&
         asr_->isReady()) {
         detection_->setLanguage(settings_->language());
+        detection_->setUseVad(settings_->vadEnabled());
         detection_->setIntervalMs(settings_->commandDetectionIntervalMs());
         detection_->setWindowSeconds(settings_->commandDetectionWindowSeconds());
         detection_->start();

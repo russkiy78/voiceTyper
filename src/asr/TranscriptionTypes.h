@@ -14,6 +14,9 @@ struct TranscriptionOptions {
     // punctuation and casing. Empty => none. Output that merely repeats it is
     // discarded.
     std::string initialPrompt;
+    // Decode only the speech the engine's VAD detects (when it has one).
+    // false => the whole recording is decoded, silence included.
+    bool useVad = true;
     // Hint for short, latency-sensitive passes (command detection loop).
     bool fastMode = false;
     // Cooperative cancel. When set and flipped to true mid-flight, the engine

@@ -298,8 +298,9 @@ TranscriptionResult WhisperAsrEngine::transcribe(
 
     // Only speech reaches whisper. A recording (or detection window) without
     // any is not decoded at all: whisper would invent a phrase for the noise.
+    const bool useVad = vad_ && options.useVad;
     std::vector<float> speech;
-    if (vad_) {
+    if (useVad) {
         speech = extractSpeech(audio.samples, audio.sampleRate);
         if (speech.empty()) {
             qCDebug(vtAsr) << "transcribe: no speech in" << audio.durationSeconds()
@@ -308,7 +309,7 @@ TranscriptionResult WhisperAsrEngine::transcribe(
             return result;
         }
     }
-    const std::vector<float>& samples = vad_ ? speech : audio.samples;
+    const std::vector<float>& samples = useVad ? speech : audio.samples;
 
     whisper_full_params params =
         whisper_full_default_params(WHISPER_SAMPLING_GREEDY);

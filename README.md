@@ -201,7 +201,8 @@ dictation, so edits apply immediately:
 
 Silence handling uses the bundled Silero VAD model (`ggml-silero-v6.2.0.bin`,
 MIT, from [ggml-org/whisper-vad](https://huggingface.co/ggml-org/whisper-vad)).
-If it is missing, recordings are transcribed whole, as before.
+If it is missing, or **Settings → Decode only detected speech (VAD)** is off,
+recordings are transcribed whole, as before.
 
 ---
 
@@ -213,6 +214,7 @@ Open **Settings** from the tray menu. Everything persists via `QSettings`.
 |---|---|---|
 | Recognition language | Auto-detect | or pick one of 16 languages |
 | Translate to English | off | Whisper's built-in translation |
+| Decode only detected speech (VAD) | on | Silero VAD trims silence before Whisper; turn off if words or whole dictations go missing |
 | Global hotkey | `Ctrl+Alt+V` | single chord |
 | Whisper model | auto-detected | path to `ggml-*.bin`; **Browse…** + **Download models** link |
 | Compute backend | Auto (prefer GPU) | CPU / Vulkan / CUDA as available |

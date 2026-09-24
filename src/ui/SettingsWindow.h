@@ -26,6 +26,11 @@ signals:
     // Emitted after settings are successfully saved so the app can reload them.
     void settingsApplied();
 
+protected:
+    // The window is reused across openings: re-read the stored settings so
+    // edits closed without Save do not linger and look applied.
+    void showEvent(QShowEvent* event) override;
+
 private slots:
     void browseModel();
     void validateCommands();
@@ -41,6 +46,7 @@ private:
 
     QComboBox* language_ = nullptr;
     QCheckBox* translate_ = nullptr;
+    QCheckBox* vadEnabled_ = nullptr;
     QKeySequenceEdit* hotkey_ = nullptr;
     QKeySequenceEdit* translateHotkey_ = nullptr;
     QLineEdit* modelPath_ = nullptr;

@@ -18,6 +18,7 @@
 #include <QLineEdit>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QShowEvent>
 #include <QSpinBox>
 #include <QVBoxLayout>
 
@@ -50,6 +51,12 @@ SettingsWindow::SettingsWindow(SettingsStore* settings, QWidget* parent)
     });
 }
 
+void SettingsWindow::showEvent(QShowEvent* event) {
+    if (!event->spontaneous())
+        loadFromSettings();
+    QDialog::showEvent(event);
+}
+
 void SettingsWindow::buildUi() {
     auto* root = new QVBoxLayout(this);
 
@@ -63,6 +70,19 @@ void SettingsWindow::buildUi() {
 
     translate_ = new QCheckBox(tr("Translate to English"), this);
     form->addRow(QString(), translate_);
+
+    vadEnabled_ = new QCheckBox(tr("Decode only detected speech (VAD)"), this);
+    vadEnabled_->setToolTip(
+        tr("The Silero VAD cuts silence before Whisper runs, so silence is "
+           "not turned into phantom phrases. Turn off if words or whole "
+           "dictations go missing: recordings are then decoded whole."));
+    if (SettingsStore::vadModelPath().isEmpty()) {
+        vadEnabled_->setEnabled(false);
+        vadEnabled_->setToolTip(
+            tr("The VAD model is missing from this install; recordings are "
+               "decoded whole."));
+    }
+    form->addRow(QString(), vadEnabled_);
 
     hotkey_ = new QKeySequenceEdit(this);
 #if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
@@ -229,6 +249,7 @@ void SettingsWindow::loadFromSettings() {
     language_->setCurrentIndex(idx >= 0 ? idx : 0);
 
     translate_->setChecked(settings_->translate());
+    vadEnabled_->setChecked(settings_->vadEnabled());
     hotkey_->setKeySequence(QKeySequence(settings_->hotkey(),
                                          QKeySequence::PortableText));
     translateHotkey_->setKeySequence(QKeySequence(settings_->translateHotkey(),
@@ -290,6 +311,7 @@ void SettingsWindow::apply() {
     }
 
     settings_->setTranslate(translate_->isChecked());
+    settings_->setVadEnabled(vadEnabled_->isChecked());
     settings_->setLanguage(language_->currentData().toString());
     settings_->setHotkey(
         hotkey_->keySequence().toString(QKeySequence::PortableText));

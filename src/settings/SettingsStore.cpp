@@ -18,6 +18,7 @@ namespace keys {
 constexpr auto kLanguage = "asr/language";
 constexpr auto kTranslate = "asr/translate";
 constexpr auto kThreads = "asr/threads";
+constexpr auto kVadEnabled = "asr/vadEnabled";
 constexpr auto kModelPath = "asr/modelPath";
 constexpr auto kComputeBackend = "asr/computeBackend";
 constexpr auto kLoadPendingPath = "asr/loadPendingPath";
@@ -118,6 +119,14 @@ int SettingsStore::threads() const {
 }
 void SettingsStore::setThreads(int n) {
     QSettings().setValue(keys::kThreads, n);
+    emit changed();
+}
+
+bool SettingsStore::vadEnabled() const {
+    return QSettings().value(keys::kVadEnabled, true).toBool();
+}
+void SettingsStore::setVadEnabled(bool on) {
+    QSettings().setValue(keys::kVadEnabled, on);
     emit changed();
 }
 

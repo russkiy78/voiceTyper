@@ -27,6 +27,11 @@ public:
     int threads() const;                 // 0 => auto
     void setThreads(int n);
 
+    // Decode only the speech the bundled Silero VAD detects. Off => whole
+    // recordings are decoded, silence included. Read per dictation.
+    bool vadEnabled() const;
+    void setVadEnabled(bool on);
+
     QString modelPath() const;           // path to ggml-*.bin
     void setModelPath(const QString& path);
 

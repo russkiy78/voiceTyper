@@ -30,6 +30,7 @@ public:
     ~CommandDetectionLoop() override;
 
     void setLanguage(const QString& code) { language_ = code; }
+    void setUseVad(bool on) { useVad_ = on; }
     void setIntervalMs(int ms) { intervalMs_ = ms; }
     void setWindowSeconds(double s) { windowSeconds_ = s; }
 
@@ -57,6 +58,7 @@ private:
     std::shared_ptr<std::atomic<bool>> abortFlag_;
 
     QString language_ = QStringLiteral("auto");
+    bool useVad_ = true;
     int intervalMs_ = 2000;
     double windowSeconds_ = 4.0;
 };
