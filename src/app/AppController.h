@@ -6,6 +6,7 @@
 #include <QObject>
 #include <QString>
 
+#include <atomic>
 #include <memory>
 #include <thread>
 
@@ -39,6 +40,9 @@ public:
 
 public slots:
     void toggleRecording();
+    // Drops the take at any stage before the paste: recording, transcription
+    // or the LLM request. Nothing is pasted.
+    void cancelDictation();
     void openSettings();
     void quit();
 
@@ -64,6 +68,7 @@ private:
     void applyLlmHotkey();
     LlmRequestConfig llmConfig() const;
     void reloadCommands();
+    void setProcessing(bool on);
     void startTranscription();
     void finishTranscription(const QString& rawText);
     // Ends the take: clears processing_, hides the overlay, pastes the text.
@@ -94,6 +99,10 @@ private:
 
     // From the end of recording until the paste, LLM wait included.
     bool processing_ = false;
+
+    // Set by cancelDictation(): aborts the take's whisper pass, and its result
+    // is dropped. A new flag per take.
+    std::shared_ptr<std::atomic<bool>> transcriptionAbort_;
 
     // buildAsrEngine() runs once at startup and again on every settings-apply
     // that changes the model/backend. The on-disk GPU crash breadcrumb may be

@@ -29,6 +29,9 @@ public slots:
     void startRecording();
     void stopRecording();               // explicit stop (hotkey / tray)
     void stopRecordingByVoiceCommand(); // from the detection loop
+    // Ends capture and drops the audio: no recordingStopped(), so nothing is
+    // transcribed.
+    void cancelRecording();
 
 signals:
     void recordingStarted();
@@ -39,6 +42,8 @@ signals:
 
 private:
     void stopInternal(bool byVoice);
+    // Stops capture, detection and the beep; false when not recording.
+    bool endCapture();
 
     AudioRecorder* recorder_ = nullptr;
     CommandDetectionLoop* detection_ = nullptr;

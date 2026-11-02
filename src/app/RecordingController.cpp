@@ -57,17 +57,27 @@ void RecordingController::stopRecording() { stopInternal(false); }
 
 void RecordingController::stopRecordingByVoiceCommand() { stopInternal(true); }
 
+void RecordingController::cancelRecording() {
+    if (endCapture())
+        qCInfo(vtApp) << "Recording cancelled";
+}
+
 void RecordingController::stopInternal(bool byVoice) {
-    if (!recording_)
+    if (!endCapture())
         return;
+    qCInfo(vtApp) << "Recording stopped" << (byVoice ? "(voice)" : "(manual)");
+    emit recordingStopped(byVoice);
+}
+
+bool RecordingController::endCapture() {
+    if (!recording_)
+        return false;
     recording_ = false;
 
     reminder_->stop();
     detection_->stop();
     recorder_->stop();
-
-    qCInfo(vtApp) << "Recording stopped" << (byVoice ? "(voice)" : "(manual)");
-    emit recordingStopped(byVoice);
+    return true;
 }
 
 } // namespace vt

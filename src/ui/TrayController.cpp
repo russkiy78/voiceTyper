@@ -23,6 +23,11 @@ TrayController::TrayController(QObject* parent) : QObject(parent) {
     connect(toggleAction_, &QAction::triggered, this,
             &TrayController::toggleRecordingRequested);
 
+    cancelAction_ = menu_->addAction(tr("Cancel dictation"));
+    cancelAction_->setEnabled(false);
+    connect(cancelAction_, &QAction::triggered, this,
+            &TrayController::cancelRequested);
+
     menu_->addSeparator();
 
     QAction* settings = menu_->addAction(tr("Settings..."));
@@ -62,6 +67,17 @@ void TrayController::setRecording(bool recording) {
     if (toggleAction_)
         toggleAction_->setText(recording ? tr("Stop dictation")
                                          : tr("Start dictation"));
+    updateCancelAction();
+}
+
+void TrayController::setProcessing(bool processing) {
+    processing_ = processing;
+    updateCancelAction();
+}
+
+void TrayController::updateCancelAction() {
+    if (cancelAction_)
+        cancelAction_->setEnabled(recording_ || processing_);
 }
 
 void TrayController::setTranslate(bool translate) {

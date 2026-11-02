@@ -64,8 +64,9 @@ account, no telemetry. Your audio never leaves the device.
   recognized text, synthesizes the paste keystroke, then restores your previous
   clipboard a moment later — your copy buffer is left as it was.
 - 🪟 **Lives in the tray.** No main window; a tray icon shows idle/recording
-  state, with menu entries to toggle dictation, open Settings, and quit. An
-  optional on-screen overlay shows a timer + live input-level meter while recording.
+  state, with menu entries to toggle or cancel dictation, open Settings, and
+  quit. An optional on-screen overlay shows a timer + live input-level meter
+  while recording.
 - 🧩 **In-app model management.** Settings links straight to model downloads and
   lets you browse to any `ggml-*.bin` / `.gguf` file; the app also auto-detects a
   model sitting next to the binary or in `models/`.
@@ -93,6 +94,10 @@ account, no telemetry. Your audio never leaves the device.
    and its answer is used instead.
 8. The result is placed on the clipboard, the paste shortcut is synthesized
    (`Ctrl+V` / `Cmd+V`), and your previous clipboard is restored shortly after.
+
+Started by mistake? **Cancel dictation** in the tray menu drops the take at any
+step before the paste — while recording, transcribing or waiting for the LLM —
+and nothing is pasted.
 
 ---
 

@@ -63,6 +63,8 @@ bool AppController::initialize() {
     tray_ = new TrayController(this);
     connect(tray_, &TrayController::toggleRecordingRequested, this,
             &AppController::toggleRecording);
+    connect(tray_, &TrayController::cancelRequested, this,
+            &AppController::cancelDictation);
     connect(tray_, &TrayController::openSettingsRequested, this,
             &AppController::openSettings);
     connect(tray_, &TrayController::quitRequested, this, &AppController::quit);
@@ -354,6 +356,29 @@ void AppController::toggleRecording() {
     }
 }
 
+void AppController::cancelDictation() {
+    if (recording_ && recording_->isRecording()) {
+        recording_->cancelRecording();
+    } else if (processing_) {
+        // The LLM request is dropped without calling back; a transcription
+        // that still finishes is ignored.
+        if (transcriptionAbort_)
+            transcriptionAbort_->store(true);
+        llm_->cancel();
+        qCInfo(vtApp) << "Processing cancelled";
+    } else {
+        return;
+    }
+
+    setProcessing(false);
+    if (tray_)
+        tray_->setRecording(false);
+    if (overlay_)
+        overlay_->hideOverlay();
+    if (toast_)
+        toast_->showToast(tr("Dictation cancelled"));
+}
+
 void AppController::onRecordingStarted() {
 #ifdef Q_OS_MAC
     // Snapshot whichever app the user was dictating into before showing the
@@ -378,7 +403,7 @@ void AppController::onRecordingStopped(bool stoppedByVoice) {
     if (overlay_ && overlay_->isVisible())
         overlay_->showProcessing(tr("Transcribing..."));
 
-    processing_ = true;
+    setProcessing(true);
     startTranscription();
 }
 
@@ -390,7 +415,7 @@ void AppController::onRecordingFailed(const QString& message) {
         tray_->setRecording(false);
     if (overlay_)
         overlay_->hideOverlay();
-    processing_ = false;
+    setProcessing(false);
 }
 
 void AppController::onLevel(double level) {
@@ -403,11 +428,17 @@ void AppController::onDuration(double seconds) {
         overlay_->setElapsedSeconds(seconds);
 }
 
+void AppController::setProcessing(bool on) {
+    processing_ = on;
+    if (tray_)
+        tray_->setProcessing(on);
+}
+
 void AppController::startTranscription() {
     AudioBuffer audio = recording_->recorder()->snapshotAll();
 
     if (!asr_->isReady()) {
-        processing_ = false;
+        setProcessing(false);
         if (overlay_)
             overlay_->hideOverlay();
         if (tray_)
@@ -431,6 +462,8 @@ void AppController::startTranscription() {
     opt.initialPrompt = settings_->initialPrompt(settings_->language(),
                                                  opt.translate)
                             .toStdString();
+    transcriptionAbort_ = std::make_shared<std::atomic<bool>>(false);
+    opt.abortFlag = transcriptionAbort_;
 
     if (worker_.joinable())
         worker_.join();
@@ -442,7 +475,11 @@ void AppController::startTranscription() {
         qCInfo(vtAsr) << "Transcribed" << audio.durationSeconds()
                       << "s of audio in" << res.durationSeconds << "s";
         QMetaObject::invokeMethod(
-            this, [this, text]() { finishTranscription(text); },
+            this,
+            [this, text, abort = opt.abortFlag]() {
+                if (!abort->load())
+                    finishTranscription(text);
+            },
             Qt::QueuedConnection);
     });
 }
@@ -455,7 +492,7 @@ void AppController::finishTranscription(const QString& rawText) {
     const QString text = QString::fromStdString(processed.text);
 
     if (text.isEmpty()) {
-        processing_ = false;
+        setProcessing(false);
         if (overlay_)
             overlay_->hideOverlay();
         if (!rawText.isEmpty())
@@ -493,7 +530,7 @@ void AppController::finishTranscription(const QString& rawText) {
 }
 
 void AppController::pasteFinalText(const QString& finalText) {
-    processing_ = false;
+    setProcessing(false);
     if (overlay_)
         overlay_->hideOverlay();
 
