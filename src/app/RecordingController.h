@@ -9,11 +9,13 @@ class AudioRecorder;
 class CommandDetectionLoop;
 class CommandEngine;
 class IAsrEngine;
+class ReminderBeep;
 class SettingsStore;
 
-// Owns microphone capture and the live stop-command detection loop, and exposes
-// a simple recording state machine. The actual transcription/paste pipeline is
-// driven by AppController in response to recordingStopped().
+// Owns microphone capture, the live stop-command detection loop and the
+// optional reminder beep, and exposes a simple recording state machine. The
+// actual transcription/paste pipeline is driven by AppController in response
+// to recordingStopped().
 class RecordingController : public QObject {
     Q_OBJECT
 public:
@@ -40,6 +42,7 @@ private:
 
     AudioRecorder* recorder_ = nullptr;
     CommandDetectionLoop* detection_ = nullptr;
+    ReminderBeep* reminder_ = nullptr;
     SettingsStore* settings_ = nullptr;
     IAsrEngine* asr_ = nullptr;
     bool recording_ = false;

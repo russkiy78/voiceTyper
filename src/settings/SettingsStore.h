@@ -67,6 +67,12 @@ public:
     bool overlayEnabled() const;
     void setOverlayEnabled(bool on);
 
+    // --- Recording -------------------------------------------------------
+    // Beep quietly every few seconds while recording, so a forgotten
+    // dictation is noticed. Off by default. Read per take.
+    bool reminderBeepEnabled() const;
+    void setReminderBeepEnabled(bool on);
+
     // --- Clipboard / paste ----------------------------------------------
     int clipboardRestoreDelayMs() const; // delay before restoring old clipboard
     void setClipboardRestoreDelayMs(int ms);

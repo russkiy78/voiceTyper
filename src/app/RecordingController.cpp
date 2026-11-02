@@ -2,6 +2,7 @@
 
 #include "asr/IAsrEngine.h"
 #include "audio/AudioRecorder.h"
+#include "audio/ReminderBeep.h"
 #include "commands/CommandDetectionLoop.h"
 #include "core/Logging.h"
 #include "settings/SettingsStore.h"
@@ -14,6 +15,7 @@ RecordingController::RecordingController(IAsrEngine* asr,
     : QObject(parent), settings_(settings), asr_(asr) {
     recorder_ = new AudioRecorder(this);
     detection_ = new CommandDetectionLoop(recorder_, asr, commands, this);
+    reminder_ = new ReminderBeep(this);
 
     connect(recorder_, &AudioRecorder::levelChanged, this,
             &RecordingController::levelChanged);
@@ -44,6 +46,9 @@ void RecordingController::startRecording() {
         detection_->start();
     }
 
+    if (settings_ && settings_->reminderBeepEnabled())
+        reminder_->start();
+
     qCInfo(vtApp) << "Recording started";
     emit recordingStarted();
 }
@@ -57,6 +62,7 @@ void RecordingController::stopInternal(bool byVoice) {
         return;
     recording_ = false;
 
+    reminder_->stop();
     detection_->stop();
     recorder_->stop();
 

@@ -28,6 +28,7 @@ constexpr auto kLoggingEnabled = "logging/enabled";
 constexpr auto kHotkey = "hotkey/sequence";
 constexpr auto kTranslateHotkey = "hotkey/translateSequence";
 constexpr auto kOverlay = "overlay/enabled";
+constexpr auto kReminderBeep = "recording/reminderBeep";
 constexpr auto kClipboardDelay = "clipboard/restoreDelayMs";
 constexpr auto kCdEnabled = "commandDetection/enabled";
 constexpr auto kCdInterval = "commandDetection/intervalMs";
@@ -207,6 +208,14 @@ bool SettingsStore::overlayEnabled() const {
 }
 void SettingsStore::setOverlayEnabled(bool on) {
     QSettings().setValue(keys::kOverlay, on);
+    emit changed();
+}
+
+bool SettingsStore::reminderBeepEnabled() const {
+    return QSettings().value(keys::kReminderBeep, false).toBool();
+}
+void SettingsStore::setReminderBeepEnabled(bool on) {
+    QSettings().setValue(keys::kReminderBeep, on);
     emit changed();
 }
 

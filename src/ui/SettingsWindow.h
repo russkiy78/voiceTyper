@@ -64,6 +64,7 @@ private:
     QComboBox* computeBackend_ = nullptr;
 
     QCheckBox* overlayEnabled_ = nullptr;
+    QCheckBox* reminderBeep_ = nullptr;
     QCheckBox* logEnabled_ = nullptr;
     QSpinBox* clipboardDelay_ = nullptr;
     QCheckBox* cdEnabled_ = nullptr;

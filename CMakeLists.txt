@@ -75,6 +75,8 @@ set(VOICETYPER_SOURCES
 
     src/audio/AudioRecorder.cpp
     src/audio/AudioRecorder.h
+    src/audio/ReminderBeep.cpp
+    src/audio/ReminderBeep.h
 
     src/asr/IAsrEngine.h
     src/asr/TranscriptionTypes.h

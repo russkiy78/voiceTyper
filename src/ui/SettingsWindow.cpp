@@ -1,6 +1,7 @@
 #include "ui/SettingsWindow.h"
 
 #include "asr/ComputeBackends.h"
+#include "audio/ReminderBeep.h"
 #include "commands/CommandConfig.h"
 #include "postprocess/LlmPostProcessor.h"
 #include "settings/SettingsStore.h"
@@ -144,6 +145,14 @@ void SettingsWindow::buildUi() {
 
     overlayEnabled_ = new QCheckBox(tr("Show recording overlay"), this);
     form->addRow(QString(), overlayEnabled_);
+
+    reminderBeep_ = new QCheckBox(
+        tr("Beep every %1 s while recording").arg(ReminderBeep::kIntervalSeconds),
+        this);
+    reminderBeep_->setToolTip(
+        tr("A short, quiet beep reminds you that dictation is still recording, "
+           "in case you forgot to stop it."));
+    form->addRow(QString(), reminderBeep_);
 
     clipboardDelay_ = new QSpinBox(this);
     clipboardDelay_->setRange(0, 5000);
@@ -429,6 +438,7 @@ void SettingsWindow::loadFromSettings() {
 
 
     overlayEnabled_->setChecked(settings_->overlayEnabled());
+    reminderBeep_->setChecked(settings_->reminderBeepEnabled());
     logEnabled_->setChecked(settings_->loggingEnabled());
     clipboardDelay_->setValue(settings_->clipboardRestoreDelayMs());
 
@@ -585,6 +595,7 @@ void SettingsWindow::apply() {
     settings_->setComputeBackend(computeBackend_->currentData().toString());
 
     settings_->setOverlayEnabled(overlayEnabled_->isChecked());
+    settings_->setReminderBeepEnabled(reminderBeep_->isChecked());
     settings_->setLoggingEnabled(logEnabled_->isChecked());
     settings_->setClipboardRestoreDelayMs(clipboardDelay_->value());
     settings_->setCommandDetectionEnabled(cdEnabled_->isChecked());
