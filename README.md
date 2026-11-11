@@ -277,7 +277,7 @@ Open **Settings** from the tray menu. Everything persists via `QSettings`.
 | Whisper model | auto-detected | path to `ggml-*.bin`; **Browse…** + **Download models** link |
 | Compute backend | Auto (prefer GPU) | CPU / Vulkan / CUDA as available |
 | Show recording overlay | on | timer + level meter |
-| Beep every 5 s while recording | off | a short, quiet reminder that dictation is still on |
+| Beep every 5 s while recording | off | a short, quiet beep as recording starts, then every 5 s: a reminder that dictation is still on |
 | Clipboard restore delay | 600 ms | wait before restoring the old clipboard |
 | Detect stop command while recording | on | the live stop-word loop |
 | Sampling interval | 2000 ms | how often the loop checks |

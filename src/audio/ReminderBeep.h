@@ -10,10 +10,10 @@ class QAudioSink;
 
 namespace vt {
 
-// Plays a short, quiet beep every kIntervalSeconds while running, as a
-// reminder that dictation is still recording. The tone is synthesized for the
-// default output device at each beep, so a device switched mid-take is
-// followed.
+// Plays a short, quiet beep when started and then every kIntervalSeconds
+// while running, as a reminder that dictation is still recording. The tone is
+// synthesized for the default output device at each beep, so a device
+// switched mid-take is followed.
 class ReminderBeep : public QObject {
     Q_OBJECT
 public:
@@ -22,7 +22,7 @@ public:
     explicit ReminderBeep(QObject* parent = nullptr);
     ~ReminderBeep() override;
 
-    void start(); // first beep one interval from now
+    void start(); // first beep right away, then one every interval
     void stop();
 
 private:

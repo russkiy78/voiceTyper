@@ -99,7 +99,10 @@ ReminderBeep::ReminderBeep(QObject* parent) : QObject(parent) {
 
 ReminderBeep::~ReminderBeep() { stop(); }
 
-void ReminderBeep::start() { timer_.start(); }
+void ReminderBeep::start() {
+    beep();
+    timer_.start();
+}
 
 void ReminderBeep::stop() {
     timer_.stop();
@@ -108,7 +111,7 @@ void ReminderBeep::stop() {
 }
 
 void ReminderBeep::beep() {
-    // The previous beep finished seconds ago; its sink is idle.
+    // The previous beep, if any, finished seconds ago; its sink is idle.
     sink_.reset();
     buffer_.close();
 
