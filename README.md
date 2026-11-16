@@ -111,7 +111,8 @@ caveat for CUDA packaging, below).
   device (`ComputeBackends`): CPU is always present; a **Vulkan**, **CUDA**, or
   **Metal** entry appears only when *both* that backend was built in *and* a
   matching GPU/driver is detected now. Pick one under **Settings → Compute
-  backend**.
+  backend**. With several GPUs each card has its own entry, remembered by name.
+  If that card is gone, the first GPU of the same backend is used.
 - **Auto mode (default).** With no explicit choice the app prefers the first GPU
   and falls back to CPU. If a selected GPU backend turns out to be unavailable at
   runtime, it falls back to CPU rather than failing.
@@ -275,7 +276,7 @@ Open **Settings** from the tray menu. Everything persists via `QSettings`.
 | Global hotkey | `Ctrl+Alt+V` | single chord; numpad digits and `+ - * /` count as their own keys (numpad + shows as `Num++`) |
 | Translation toggle hotkey | `Ctrl+Alt+P` | toggles translate-to-English |
 | Whisper model | auto-detected | path to `ggml-*.bin`; **Browse…** + **Download models** link |
-| Compute backend | Auto (prefer GPU) | CPU / Vulkan / CUDA as available |
+| Compute backend | Auto (prefer GPU) | CPU / Vulkan / CUDA as available, one entry per GPU |
 | Show recording overlay | on | timer + level meter |
 | Beep every 5 s while recording | off | a short, quiet beep as recording starts, then every 5 s: a reminder that dictation is still on |
 | Clipboard restore delay | 600 ms | wait before restoring the old clipboard |

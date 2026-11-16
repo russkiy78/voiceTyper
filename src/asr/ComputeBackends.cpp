@@ -14,7 +14,12 @@ namespace vt {
 namespace {
 
 ComputeDevice cpuDevice() {
-    return ComputeDevice{"cpu", "CPU", "CPU", /*isGpu=*/false, /*gpuIndex=*/-1};
+    return ComputeDevice{"cpu", "cpu", "CPU", "CPU", /*isGpu=*/false,
+                         /*gpuIndex=*/-1};
+}
+
+ResolvedBackend useDevice(const ComputeDevice& d) {
+    return {true, d.gpuIndex, d.backendName + " — " + d.deviceName, d.id};
 }
 
 std::string toLower(std::string s) {
@@ -53,7 +58,17 @@ std::vector<ComputeDevice> enumerateComputeDevices() {
                 reg = rn;
         }
         cd.backendName = reg;
-        cd.id = toLower(reg);
+        cd.backendId = toLower(reg);
+
+        // Keyed by name, not ordinal: CUDA and Vulkan order the same cards
+        // differently, and an ordinal shifts when a card is added or removed.
+        const std::string base = cd.backendId + "|" + cd.deviceName;
+        const auto sameName = std::count_if(
+            devices.begin(), devices.end(), [&](const ComputeDevice& other) {
+                return other.isGpu && other.backendId == cd.backendId &&
+                       other.deviceName == cd.deviceName;
+            });
+        cd.id = sameName == 0 ? base : base + "|" + std::to_string(sameName + 1);
 
         devices.push_back(std::move(cd));
     }
@@ -68,7 +83,7 @@ ResolvedBackend resolveBackend(const std::string& wantedId) {
     // which can abort() on a half-broken driver (device present but a property
     // query fails). A user who chose CPU must never pay that risk here.
     if (wantedId == "cpu")
-        return {false, 0, "CPU"};
+        return {false, 0, "CPU", "cpu"};
 
     const std::vector<ComputeDevice> devices = enumerateComputeDevices();
 
@@ -83,21 +98,34 @@ ResolvedBackend resolveBackend(const std::string& wantedId) {
     // Empty / "auto": prefer the first GPU, else CPU.
     if (wantedId.empty() || wantedId == "auto") {
         if (firstGpu)
-            return {true, firstGpu->gpuIndex,
-                    firstGpu->backendName + " — " + firstGpu->deviceName};
-        return {false, 0, "CPU"};
+            return useDevice(*firstGpu);
+        return {false, 0, "CPU", "cpu"};
     }
 
-    // Explicit GPU backend by id (e.g. "vulkan", "cuda").
+    // Explicit device ("cuda|NVIDIA GeForce RTX 2080 Ti").
     for (const ComputeDevice& d : devices) {
         if (d.isGpu && d.id == wantedId)
-            return {true, d.gpuIndex, d.backendName + " — " + d.deviceName};
+            return useDevice(d);
+    }
+
+    // Bare backend id ("cuda", as older versions stored it), or a device that
+    // is gone: the first device of that backend.
+    const std::string backendId = wantedId.substr(0, wantedId.find('|'));
+    for (const ComputeDevice& d : devices) {
+        if (d.isGpu && d.backendId == backendId) {
+            if (backendId != wantedId)
+                qCWarning(vtAsr) << "Requested compute device"
+                                 << QString::fromStdString(wantedId)
+                                 << "is not available; using"
+                                 << QString::fromStdString(d.id);
+            return useDevice(d);
+        }
     }
 
     qCWarning(vtAsr) << "Requested compute backend"
                      << QString::fromStdString(wantedId)
                      << "is not available; falling back to CPU";
-    return {false, 0, "CPU (requested backend unavailable)"};
+    return {false, 0, "CPU (requested backend unavailable)", "cpu"};
 }
 
 } // namespace vt

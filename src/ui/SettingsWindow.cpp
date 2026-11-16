@@ -423,19 +423,7 @@ void SettingsWindow::loadFromSettings() {
                                                    QKeySequence::PortableText));
     modelPath_->setText(settings_->modelPath());
 
-    // Select the saved backend; if it's empty ("auto") or no longer available,
-    // prefer the first GPU when present, otherwise CPU.
-    int bidx = computeBackend_->findData(settings_->computeBackend());
-    if (bidx < 0) {
-        bidx = 0;
-        for (int i = 0; i < computeBackend_->count(); ++i) {
-            if (computeBackend_->itemData(i).toString() != QLatin1String("cpu")) {
-                bidx = i;
-                break;
-            }
-        }
-    }
-    computeBackend_->setCurrentIndex(bidx);
+    computeBackend_->setCurrentIndex(backendRow(settings_->computeBackend()));
 
 
     overlayEnabled_->setChecked(settings_->overlayEnabled());
@@ -465,6 +453,14 @@ void SettingsWindow::loadFromSettings() {
     llmTestButton_->setEnabled(true);
     llmTestOutput_->clear();
     llmStatus_->clear();
+}
+
+int SettingsWindow::backendRow(const QString& stored) const {
+    // The row of the device this value actually runs on — an old bare "cuda",
+    // empty "auto" or an unavailable device resolve like they do at load time.
+    const int row = computeBackend_->findData(QString::fromStdString(
+        resolveBackend(stored.toStdString()).deviceId));
+    return row >= 0 ? row : 0;
 }
 
 void SettingsWindow::browseModel() {
@@ -593,7 +589,11 @@ void SettingsWindow::apply() {
     settings_->setTranslateHotkey(
         translateHotkey_->keySequence().toString(QKeySequence::PortableText));
     settings_->setModelPath(modelPath_->text());
-    settings_->setComputeBackend(computeBackend_->currentData().toString());
+    // Only a different device is written: re-saving an equivalent value (an
+    // old bare "cuda", or empty "auto") would reload the model for nothing.
+    if (computeBackend_->currentIndex() !=
+        backendRow(settings_->computeBackend()))
+        settings_->setComputeBackend(computeBackend_->currentData().toString());
 
     settings_->setOverlayEnabled(overlayEnabled_->isChecked());
     settings_->setReminderBeepEnabled(reminderBeep_->isChecked());

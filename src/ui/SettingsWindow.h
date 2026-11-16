@@ -50,6 +50,8 @@ private:
     bool llmConfigFromFields(LlmRequestConfig* cfg, QString* error) const;
     void showLlmStatus(const QString& text, bool error);
     void loadFromSettings();
+    // Combo row of the compute device a stored backend value resolves to.
+    int backendRow(const QString& stored) const;
     // Small modal offering direct download links for the recommended models.
     void openModelDownloadsDialog();
 
