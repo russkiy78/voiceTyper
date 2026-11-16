@@ -153,17 +153,16 @@ void AppController::buildAsrEngine() {
     // (A) Crash-safe GPU load + first inference. A GPU model load — or the very
     // first whisper_full() call on that GPU context — can hard-crash the process
     // in a way C++ can't catch (a CUDA GGML_ABORT, or a driver/device fault).
-    // We leave a breadcrumb on disk before the load and clear it only after the
-    // first successful inference returns (see re-arm block below). A GPU
-    // breadcrumb still set next launch means something in that window killed the
-    // app: retry on CPU, which may run the model even when the GPU can't.
+    // We leave a breadcrumb on disk right before each of those two calls and
+    // clear it as soon as the call returns. A GPU breadcrumb still set next
+    // launch means the process died inside one of them: retry on CPU, which may
+    // run the model even when the GPU can't. The breadcrumb is never left armed
+    // while idle — otherwise a reboot, logout or kill before the first dictation
+    // reads as a GPU crash and forces a healthy GPU down to CPU.
     //
     // Honour that ONLY on the first build of the process. buildAsrEngine() also
     // runs from onSettingsApplied() when the model/backend changes — in-process,
-    // with the app demonstrably alive. There a still-armed breadcrumb is our own
-    // first-inference guard (GPU loaded fine, user just hasn't dictated yet), NOT
-    // a crash; treating it as one silently forced a healthy GPU down to CPU and
-    // overwrote the user's backend choice on the next settings-apply.
+    // with the app demonstrably alive, so a breadcrumb seen there isn't a crash.
     const bool freshProcess = !asrEngineBuiltOnce_;
     asrEngineBuiltOnce_ = true;
 
@@ -180,9 +179,9 @@ void AppController::buildAsrEngine() {
                "voiceTyper switched to CPU. Re-enable it in Settings to try "
                "again.");
     } else if (!settings_->loadAttemptPath().isEmpty()) {
-        // Not a crash to act on — a stale breadcrumb: our own first-inference
-        // guard on an in-process rebuild, a just-retried CPU load, or a leftover
-        // from a different model. Clear it and load the requested backend.
+        // Not a crash to act on — a stale breadcrumb: seen on an in-process
+        // rebuild, from a CPU load, or a leftover from a different model.
+        // Clear it and load the requested backend.
         settings_->clearLoadAttempt();
     }
 
@@ -196,22 +195,21 @@ void AppController::buildAsrEngine() {
 
     settings_->clearLoadAttempt();
 
-    // Re-arm the breadcrumb to cover the first whisper_full() call. CUDA (and
-    // sometimes Vulkan) can GGML_ABORT() during inference, not only during init —
-    // the log cuts off right at the first "transcribe:" debug line. The callback
-    // fires from inside the transcribe() mutex after whisper_full() returns for
-    // the first time (regardless of its result code: a non-fatal rc means the GPU
-    // survived). quit() also clears it in case the user closes without ever
-    // transcribing, so the breadcrumb never causes a false CPU fallback.
+    // Guard the first whisper_full() call the same way. CUDA (and sometimes
+    // Vulkan) can GGML_ABORT() during inference, not only during init — the log
+    // cuts off right at the first "transcribe:" debug line. The engine arms the
+    // breadcrumb right before that call and clears it when the call returns.
+    // Both run on the transcribing thread, synchronously: the breadcrumb must be
+    // on disk before a call that may kill the process. The SettingsStore
+    // breadcrumb methods are safe there (own QSettings, no signals).
     if (rb.useGpu && engine->isReady() && !engine->gpuInitFailed()) {
-        settings_->setLoadAttempt(lastModelPath_, /*gpu=*/true);
-        engine->setOnFirstGpuInferenceDone([this]() {
-            // transcribe() runs on a worker thread; hop to main thread to write
-            // QSettings (not thread-safe from workers).
-            QMetaObject::invokeMethod(this, [this]() {
-                settings_->clearLoadAttempt();
-            }, Qt::QueuedConnection);
-        });
+        SettingsStore* settings = settings_;
+        const QString modelPath = lastModelPath_;
+        engine->setFirstInferenceGuard(
+            [settings, modelPath]() {
+                settings->setLoadAttempt(modelPath, /*gpu=*/true);
+            },
+            [settings]() { settings->clearLoadAttempt(); });
     }
 
     // (B) The engine catches *recoverable* GPU init failures and falls back to
@@ -593,10 +591,6 @@ void AppController::quit() {
         llm_->cancel();
     if (worker_.joinable())
         worker_.join();
-    // Clear the first-inference breadcrumb if the user closes before any
-    // transcription happened; without this the next launch would see a stale
-    // GPU breadcrumb and fall back to CPU unnecessarily.
-    settings_->clearLoadAttempt();
     QCoreApplication::quit();
 }
 

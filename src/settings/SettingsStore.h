@@ -40,14 +40,14 @@ public:
     QString computeBackend() const;
     void setComputeBackend(const QString& id);
 
-    // Crash breadcrumb covering the WHOLE model load (CPU and GPU). Loading a
-    // whisper model can hard-crash the process in ways C++ can't catch — a GPU
-    // GGML_ABORT, or on the CPU path an OOM that segfaults on a null tensor
-    // buffer / trips WHISPER_ASSERT. AppController writes this (model path +
-    // whether GPU was used) right before whisper init and clears it on success.
-    // If it's still set next launch, that exact load killed the app, so a
-    // crashed GPU load is retried on CPU. Writes are flushed immediately; no
-    // changed().
+    // Crash breadcrumb covering the WHOLE model load (CPU and GPU) and the
+    // first GPU inference. Either can hard-crash the process in ways C++ can't
+    // catch — a GPU GGML_ABORT, or on the CPU path an OOM that segfaults on a
+    // null tensor buffer / trips WHISPER_ASSERT. AppController writes this
+    // (model path + whether GPU was used) right before the call and clears it
+    // when the call returns. If it's still set next launch, that exact call
+    // killed the app, so a crashed GPU is retried on CPU. Writes are flushed
+    // immediately; no changed(), so they're safe from a worker thread.
     QString loadAttemptPath() const;
     bool loadAttemptWasGpu() const;
     void setLoadAttempt(const QString& modelPath, bool gpu);

@@ -260,9 +260,11 @@ WhisperAsrEngine::WhisperAsrEngine(const std::string& modelPath, bool useGpu,
                          << "- transcribing whole recordings, silence included";
 }
 
-void WhisperAsrEngine::setOnFirstGpuInferenceDone(std::function<void()> cb) {
+void WhisperAsrEngine::setFirstInferenceGuard(std::function<void()> arm,
+                                             std::function<void()> disarm) {
     std::lock_guard<std::mutex> lock(mutex_);
-    onFirstGpuInferenceDone_ = std::move(cb);
+    armFirstInference_ = std::move(arm);
+    disarmFirstInference_ = std::move(disarm);
 }
 
 WhisperAsrEngine::~WhisperAsrEngine() {
@@ -390,19 +392,27 @@ TranscriptionResult WhisperAsrEngine::transcribe(
 
     dumpWavDebug(samples, audio.sampleRate, pass, "decoded");
 
+    // Until one call has run to the end, the crash breadcrumb is armed for
+    // exactly the duration of whisper_full() — never across the idle time
+    // before it, so a process killed while idle isn't read as a GPU crash.
+    const bool guarded = !firstInferenceDone_ && armFirstInference_;
+    if (guarded)
+        armFirstInference_();
+
     const int rc = whisper_full(ctx_, params, samples.data(),
                                 static_cast<int>(samples.size()));
 
-    // whisper_full() returned — the GPU didn't abort on this call. Clear the
-    // first-inference crash breadcrumb (set by AppController after GPU init).
-    if (!firstGpuInferenceDone_ && onFirstGpuInferenceDone_) {
-        firstGpuInferenceDone_ = true;
-        onFirstGpuInferenceDone_();
+    const bool aborted = options.abortFlag &&
+                         options.abortFlag->load(std::memory_order_relaxed);
+    if (guarded) {
+        // Returned, so the GPU didn't take the process down.
+        disarmFirstInference_();
+        // An aborted pass may have stopped before the risky GPU work.
+        if (rc == 0 || !aborted)
+            firstInferenceDone_ = true;
     }
 
     if (rc != 0) {
-        const bool aborted = options.abortFlag &&
-                             options.abortFlag->load(std::memory_order_relaxed);
         if (aborted)
             qCDebug(vtAsr) << "transcribe aborted (rc =" << rc << ")";
         else

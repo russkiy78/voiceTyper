@@ -55,12 +55,14 @@ public:
     // CPU so it stops re-probing a GPU that can't run the model every launch.
     [[nodiscard]] bool gpuInitFailed() const { return gpuInitFailed_; }
 
-    // Register a one-shot callback invoked after the first whisper_full() call
-    // returns (any result — if it returned, the GPU didn't abort). Called from
-    // within the internal mutex, so the callback must not call transcribe().
-    // Used by AppController to clear the GPU crash breadcrumb that guards the
-    // first inference.
-    void setOnFirstGpuInferenceDone(std::function<void()> cb);
+    // Bracket whisper_full() calls until one runs to the end: arm() runs right
+    // before the call, disarm() as soon as it returns (any result — if it
+    // returned, the GPU didn't abort the process). A call the abort flag cut
+    // short keeps the guard for the next one. Both run on the transcribing
+    // thread inside the internal mutex, so they must be thread-safe and must
+    // not call transcribe(). Used by AppController for the GPU crash breadcrumb.
+    void setFirstInferenceGuard(std::function<void()> arm,
+                                std::function<void()> disarm);
 
 private:
     // Speech-only audio for whisper (see compactSpeech). Empty when the VAD
@@ -73,8 +75,9 @@ private:
     std::string modelPath_;
     std::string backendLabel_;
     bool gpuInitFailed_ = false;
-    bool firstGpuInferenceDone_ = false;
-    std::function<void()> onFirstGpuInferenceDone_;
+    bool firstInferenceDone_ = false;
+    std::function<void()> armFirstInference_;
+    std::function<void()> disarmFirstInference_;
     mutable std::mutex mutex_;
 };
 
