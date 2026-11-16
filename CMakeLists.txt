@@ -123,6 +123,7 @@ set(VOICETYPER_SOURCES
     src/ui/TrayController.h
     src/ui/SettingsWindow.cpp
     src/ui/SettingsWindow.h
+    src/ui/HotkeyEdit.h
 )
 
 # Whisper-backed engine only when the backend is enabled.

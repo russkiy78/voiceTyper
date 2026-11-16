@@ -52,7 +52,8 @@ const QString kInterface = QStringLiteral("org.freedesktop.portal.GlobalShortcut
 // "Ctrl+Alt+V" -> "CTRL+ALT+v": XDG shortcuts-spec modifiers, then the xkb
 // keysym name. Empty if the key has no keysym.
 QString portalTrigger(const ParsedHotkey& hk) {
-    const unsigned long keysym = qtKeyToKeysym(hk.key);
+    const unsigned long keysym =
+        qtKeyToKeysym(hk.key, hk.modifiers.testFlag(Qt::KeypadModifier));
     const char* name = keysym ? XKeysymToString(keysym) : nullptr;
     if (!name)
         return {};

@@ -28,7 +28,19 @@
 
 namespace vt {
 
-unsigned long qtKeyToKeysym(int key) {
+unsigned long qtKeyToKeysym(int key, bool keypad) {
+    if (keypad && isKeypadHotkeyKey(key)) {
+        if (key >= Qt::Key_0 && key <= Qt::Key_9)
+            return XK_KP_0 + (key - Qt::Key_0);
+        switch (key) {
+        case Qt::Key_Plus: return XK_KP_Add;
+        case Qt::Key_Minus: return XK_KP_Subtract;
+        case Qt::Key_Asterisk: return XK_KP_Multiply;
+        case Qt::Key_Slash: return XK_KP_Divide;
+        default: break;
+        }
+    }
+
     // Printable ASCII: Qt::Key values match the corresponding X keysyms.
     if (key >= 0x20 && key <= 0x7e)
         return static_cast<KeySym>(key);
@@ -134,7 +146,8 @@ public:
             return false;
         }
 
-        const KeySym keysym = qtKeyToKeysym(hk.key);
+        const KeySym keysym = qtKeyToKeysym(
+            hk.key, hk.modifiers.testFlag(Qt::KeypadModifier));
         const KeyCode keycode =
             keysym == NoSymbol ? 0 : XKeysymToKeycode(display_, keysym);
         if (keycode == 0) {

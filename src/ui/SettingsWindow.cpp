@@ -5,6 +5,7 @@
 #include "commands/CommandConfig.h"
 #include "postprocess/LlmPostProcessor.h"
 #include "settings/SettingsStore.h"
+#include "ui/HotkeyEdit.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -97,13 +98,13 @@ void SettingsWindow::buildUi() {
     }
     form->addRow(QString(), vadEnabled_);
 
-    hotkey_ = new QKeySequenceEdit(this);
+    hotkey_ = new HotkeyEdit(this);
 #if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
     hotkey_->setMaximumSequenceLength(1);
 #endif
     form->addRow(tr("Global hotkey:"), hotkey_);
 
-    translateHotkey_ = new QKeySequenceEdit(this);
+    translateHotkey_ = new HotkeyEdit(this);
 #if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
     translateHotkey_->setMaximumSequenceLength(1);
 #endif
@@ -239,7 +240,7 @@ QWidget* SettingsWindow::buildLlmTab() {
     llmEnabled_ = new QCheckBox(tr("Process dictated text with the LLM"), page);
     form->addRow(QString(), llmEnabled_);
 
-    llmHotkey_ = new QKeySequenceEdit(page);
+    llmHotkey_ = new HotkeyEdit(page);
 #if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
     llmHotkey_->setMaximumSequenceLength(1);
 #endif

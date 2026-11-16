@@ -21,7 +21,18 @@ namespace {
 // both filters and fire every service's activated() signal.
 constexpr int kHotkeyIdBase = 0xB001;
 
-UINT qtKeyToVk(int key) {
+UINT qtKeyToVk(int key, bool keypad) {
+    if (keypad && isKeypadHotkeyKey(key)) {
+        if (key >= Qt::Key_0 && key <= Qt::Key_9)
+            return static_cast<UINT>(VK_NUMPAD0 + (key - Qt::Key_0));
+        switch (key) {
+        case Qt::Key_Plus: return VK_ADD;
+        case Qt::Key_Minus: return VK_SUBTRACT;
+        case Qt::Key_Asterisk: return VK_MULTIPLY;
+        case Qt::Key_Slash: return VK_DIVIDE;
+        default: break;
+        }
+    }
     if (key >= Qt::Key_A && key <= Qt::Key_Z)
         return static_cast<UINT>('A' + (key - Qt::Key_A));
     if (key >= Qt::Key_0 && key <= Qt::Key_9)
@@ -78,7 +89,8 @@ public:
             emit registrationFailed(tr("Could not parse hotkey '%1'.").arg(sequence));
             return false;
         }
-        const UINT vk = qtKeyToVk(hk.key);
+        const UINT vk =
+            qtKeyToVk(hk.key, hk.modifiers.testFlag(Qt::KeypadModifier));
         if (vk == 0) {
             emit registrationFailed(tr("Unsupported key in '%1'.").arg(sequence));
             return false;

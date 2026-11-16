@@ -37,12 +37,34 @@ NSEventModifierFlags qtModsToCocoa(Qt::KeyboardModifiers mods) {
     if (mods & Qt::AltModifier) m |= NSEventModifierFlagOption;      // physical Option
     if (mods & Qt::ShiftModifier) m |= NSEventModifierFlagShift;     // physical Shift
     if (mods & Qt::MetaModifier) m |= NSEventModifierFlagControl;    // physical Control
+    // macOS flags every numpad key event with NumericPad, and handleEvent()
+    // compares the flags exactly.
+    if (mods & Qt::KeypadModifier) m |= NSEventModifierFlagNumericPad;
     return m;
 }
 
 // ANSI virtual keycodes (US keyboard layout positions — these identify a
 // physical key position, not a character, same as the old Carbon table).
-unsigned short qtKeyToVk(int key) {
+unsigned short qtKeyToVk(int key, bool keypad) {
+    if (keypad && isKeypadHotkeyKey(key)) {
+        switch (key) {
+        case Qt::Key_0: return kVK_ANSI_Keypad0;
+        case Qt::Key_1: return kVK_ANSI_Keypad1;
+        case Qt::Key_2: return kVK_ANSI_Keypad2;
+        case Qt::Key_3: return kVK_ANSI_Keypad3;
+        case Qt::Key_4: return kVK_ANSI_Keypad4;
+        case Qt::Key_5: return kVK_ANSI_Keypad5;
+        case Qt::Key_6: return kVK_ANSI_Keypad6;
+        case Qt::Key_7: return kVK_ANSI_Keypad7;
+        case Qt::Key_8: return kVK_ANSI_Keypad8;
+        case Qt::Key_9: return kVK_ANSI_Keypad9;
+        case Qt::Key_Plus: return kVK_ANSI_KeypadPlus;
+        case Qt::Key_Minus: return kVK_ANSI_KeypadMinus;
+        case Qt::Key_Asterisk: return kVK_ANSI_KeypadMultiply;
+        case Qt::Key_Slash: return kVK_ANSI_KeypadDivide;
+        default: break;
+        }
+    }
     switch (key) {
     case Qt::Key_A: return kVK_ANSI_A;
     case Qt::Key_B: return kVK_ANSI_B;
@@ -124,7 +146,8 @@ public:
             return false;
         }
 
-        const unsigned short vk = qtKeyToVk(hk.key);
+        const unsigned short vk =
+            qtKeyToVk(hk.key, hk.modifiers.testFlag(Qt::KeypadModifier));
         if (vk == kInvalidVk) {
             emit registrationFailed(tr("Unsupported key in '%1'.").arg(sequence));
             return false;

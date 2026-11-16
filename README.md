@@ -272,7 +272,7 @@ Open **Settings** from the tray menu. Everything persists via `QSettings`.
 | Recognition language | Auto-detect | or pick one of 16 languages |
 | Translate to English | off | Whisper's built-in translation |
 | Decode only detected speech (VAD) | on | Silero VAD trims silence before Whisper; turn off if words or whole dictations go missing |
-| Global hotkey | `Ctrl+Alt+V` | single chord |
+| Global hotkey | `Ctrl+Alt+V` | single chord; numpad digits and `+ - * /` count as their own keys (numpad + shows as `Num++`) |
 | Translation toggle hotkey | `Ctrl+Alt+P` | toggles translate-to-English |
 | Whisper model | auto-detected | path to `ggml-*.bin`; **Browse…** + **Download models** link |
 | Compute backend | Auto (prefer GPU) | CPU / Vulkan / CUDA as available |

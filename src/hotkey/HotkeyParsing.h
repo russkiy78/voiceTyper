@@ -15,4 +15,9 @@ struct ParsedHotkey {
 
 ParsedHotkey parseHotkey(const QString& sequence);
 
+// Numpad keys a hotkey can tell apart from their main-keyboard twins: digits
+// and + - * /. For these, Qt::KeypadModifier in ParsedHotkey::modifiers (the
+// "Num+" prefix in portable text, e.g. "Num++") selects the numpad key.
+bool isKeypadHotkeyKey(int key);
+
 } // namespace vt

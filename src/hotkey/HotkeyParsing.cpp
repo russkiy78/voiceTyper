@@ -21,4 +21,10 @@ ParsedHotkey parseHotkey(const QString& sequence) {
     return out;
 }
 
+bool isKeypadHotkeyKey(int key) {
+    return (key >= Qt::Key_0 && key <= Qt::Key_9) || key == Qt::Key_Plus ||
+           key == Qt::Key_Minus || key == Qt::Key_Asterisk ||
+           key == Qt::Key_Slash;
+}
+
 } // namespace vt
